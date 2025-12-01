@@ -14,7 +14,7 @@ of this repository in the `uses` field of your workflow job definition, like so:
 ```yaml
 jobs:
   example-job:
-    uses: infitx-org/actions/.github/workflows/<workflow_name>.yaml@main
+    uses: infitx-org/actions/.github/workflows/<name>.yaml@main
 ```
 
 As the main branch may change over time, it's recommended to pin to a specific
@@ -24,7 +24,7 @@ or commit SHA instead of the `main` branch, for example:
 ```yaml
 jobs:
   example-job:
-    uses: infitx-org/actions/.github/workflows/<workflow_name>.yaml@v1.0.0
+    uses: infitx-org/actions/.github/workflows/<name>.yaml@v1.0.0
 ```
 
 ## Node.js CI Workflow
@@ -36,7 +36,6 @@ repository, add the following file `./.github/workflows/node.yaml`:
 
 ```yaml
 name: Node.js
-run-name: Node.js => ${{  github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message }}
 
 on:
   push:
@@ -57,6 +56,7 @@ This workflow looks for the following scripts in the `./package.json` file and r
 the appropriate jobs, if the script is found. All the scripts are optional.
 
 - `ci-lint`: This should run code linting.
+
   Example:
 
   ```json
@@ -70,6 +70,7 @@ the appropriate jobs, if the script is found. All the scripts are optional.
 
 - `ci-unit`: This should run the unit tests in CI mode. If it outputs a file named
   `./coverage/junit.xml`, the test results will be published in the PR.
+
   Example:
 
   ```json
@@ -85,6 +86,7 @@ the appropriate jobs, if the script is found. All the scripts are optional.
 - `ci-coverage`: This should run the test coverage in CI mode. If it outputs a
   file named `coverage/report.json`, a coverage report summary will be published
   in the PR.
+
   Example:
 
   ```json
@@ -142,7 +144,6 @@ example below:
 
 ```yaml
 name: Docker
-run-name: Docker => ${{  github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message }}
 
 on:
   push:
