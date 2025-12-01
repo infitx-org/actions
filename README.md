@@ -209,6 +209,19 @@ jobs:
 
 This workflow automates the release process using the
 [Release Please tool](https://github.com/googleapis/release-please).
+
+This tool does the following:
+
+- Analyzes merged pull requests to determine the next semantic version bump
+  (major, minor, patch) based on conventional commit messages.
+- Updates the version in relevant files (e.g., `package.json`, `CHANGELOG.md`).
+- Creates a new release pull request with the updated version and changelog.
+  When the release PR is merged, it automatically creates a new GitHub release,
+  which can trigger the Docker workflow to build and push new images.
+
+Check the [Release Please documentation](https://github.com/googleapis/release-please)
+for more details.
+
 It can be reused across multiple repositories to ensure consistent versioning
 and changelog generation. To use this workflow in your repository, add the
 following file `./.github/workflows/release.yml`:
