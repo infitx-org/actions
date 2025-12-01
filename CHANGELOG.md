@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/infitx-org/actions/compare/v1.0.2...v1.1.0) (2025-12-01)
+
+
+### Features
+
+* add Release Please workflow for automated releases ([f8cce21](https://github.com/infitx-org/actions/commit/f8cce21b974c7e24801cc2bff2123a8399c35b34))
+
+
+### Bug Fixes
+
+* update release-please workflow to use environment variable for token ([0572250](https://github.com/infitx-org/actions/commit/05722503a1b8cce0c5869bd30f044d1c2ee02d56))
+
 ## [1.0.2](https://github.com/infitx-org/actions/compare/v1.0.1...v1.0.2) (2025-12-01)
 
 
