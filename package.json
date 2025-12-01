@@ -1,6 +1,6 @@
 {
   "name": "@infitx/actions",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Reusable workflows and actions",
   "private": true,
   "scripts": {
