@@ -9,7 +9,7 @@ on:
       image:
         required: false
         type: string
-        default: ${{ github.repository }}
+        default: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.repo.name || github.event.repository.name }}
       context:
         type: string
         default: .
@@ -53,7 +53,7 @@ jobs:
         with:
           registry: ${{ inputs.registry }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Extract Docker metadata
         id: meta
