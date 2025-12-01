@@ -205,7 +205,7 @@ jobs:
       TRIGGER_DOWNSTREAM: ${{ secrets.TRIGGER_TOKEN }}
 ```
 
-## Release Please Workflow
+## Release
 
 This workflow automates the release process using the
 [Release Please tool](https://github.com/googleapis/release-please).
