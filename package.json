@@ -1,0 +1,29 @@
+{
+  "name": "@infitx/actions",
+  "version": "0.0.1",
+  "description": "Reusable workflows and actions",
+  "private": true,
+  "scripts": {
+    "test:unit": "jest",
+    "lint": "eslint .",
+    "audit:check": "audit-ci --config ./audit-ci.jsonc",
+    "ci-unit": "JEST_JUNIT_OUTPUT_DIR=coverage npm run test:unit -- --ci --reporters=default --reporters=jest-junit --outputFile=./coverage/junit.xml",
+    "ci-coverage": "npm run test:unit -- --silent --ci --coverage --testLocationInResults --json --outputFile=coverage/report.json",
+    "ci-lint": "npm run lint",
+    "ci-audit": "mkdir -p audit; npm run audit:check -- --report-type summary ; npm run --silent audit:check -- -o json > ./audit/auditResults.json",
+    "ci-deprecation": "MODE=error check-deprecations-npm"
+  },
+  "author": "INFITX",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@mojaloop/ml-depcheck-utility": "^1.1.3",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.8.1",
+    "audit-ci": "^7.1.0",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "jest": "^30.2.0",
+    "jest-junit": "16.0.0"
+  }
+}

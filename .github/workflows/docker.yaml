@@ -1,0 +1,121 @@
+on:
+  workflow_call:
+    inputs:
+      dockerfile:
+        required: false
+        type: string
+        default: Dockerfile
+      image:
+        required: false
+        type: string
+        default: ${{ github.repository }}
+      context:
+        type: string
+        default: .
+      registry:
+        required: false
+        type: string
+        default: ghcr.io
+      owner:
+        required: false
+        type: string
+        default: ${{ github.repository_owner }}
+      downstream: # e.g. https://api.github.com/repos/infitx-org/profile-cd/actions/workflows/docker-image.yaml/dispatches
+        required: false
+        type: string
+    secrets:
+      REGISTRY_PASSWORD:
+        required: true
+      TRIGGER_DOWNSTREAM:
+        required: false
+
+env:
+  TEST_TAG: localbuild/testimage:latest
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into registry ${{ inputs.registry }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ inputs.owner }}/${{ inputs.image }}
+      - name: Build Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          load: true
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          tags: ${{ env.TEST_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run the Anchore Grype scan action
+        uses: anchore/scan-action@v6
+        id: scan
+        with:
+          image: ${{ env.TEST_TAG }}
+          fail-build: true
+          severity-cutoff: critical
+          output-format: table
+
+      - name: License scan
+        run: |
+          git clone https://github.com/mojaloop/license-scanner /tmp/license-scanner
+          cd /tmp/license-scanner
+          make build default-files set-up
+          mode=docker dockerImages=${{ env.TEST_TAG }} make run
+
+      - name: Upload License scan results
+        uses: actions/upload-artifact@v5
+        with:
+          name: license-scan-results-${{ inputs.image }}
+          path: /tmp/license-scanner/results
+
+      - name: Push Docker image
+        if: ${{ github.event_name != 'pull_request' }}
+        id: push
+        uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: 'false'
+        with:
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trigger downstream workflow
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          # Trigger downstream workflow if TRIGGER_DOWNSTREAM secret is set
+          if [ -z "${{ secrets.TRIGGER_DOWNSTREAM }}" ]; then
+            echo "TRIGGER_DOWNSTREAM secret not set, skipping downstream workflow trigger"
+            exit 0
+          fi
+          echo "Triggering downstream workflow"
+          curl -L \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ secrets.TRIGGER_DOWNSTREAM }}" \
+              ${{ inputs.downstream }} \
+              -d '{"ref":"main","inputs":{"upstream":"${{ github.event.repository.url }}","image":"${{ inputs.registry }}/${{ inputs.owner }}/${{ inputs.image }}","tag":"${{ steps.meta.outputs.version }}"}}'

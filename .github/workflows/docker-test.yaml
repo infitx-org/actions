@@ -1,0 +1,14 @@
+name: Docker
+run-name: Docker => ${{  github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message }}
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    uses: ./.github/workflows/docker.yaml
+    secrets:
+      REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
