@@ -1,18 +1,6 @@
 ARG NODE_VERSION_BUILD=24.11.0
 ARG NODE_VERSION=24.11.0-slim
 
-# Verify installations
-RUN kubectl version --client && \
-    helm version && \
-    k9s version && \
-    squid -v && \
-    git --version && \
-    jq --version && \
-    yq --version && \
-    argocd version --client && \
-    k6 version && \
-    kubescape version
-
 # Build application dependencies
 FROM node:${NODE_VERSION_BUILD} AS builder
 WORKDIR /opt/app
