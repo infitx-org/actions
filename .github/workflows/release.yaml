@@ -1,0 +1,20 @@
+name: Release Workflow
+run-name: release-please => ${{  github.event.head_commit.message }}
+
+on:
+  workflow_call:
+    secrets:
+      token:
+        required: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      token: ${{ secrets.token }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        if: ${{ env.token != '' }}
+        with:
+          token: ${{ env.token }}
+          release-type: node

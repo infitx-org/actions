@@ -204,3 +204,30 @@ jobs:
     secrets:
       TRIGGER_DOWNSTREAM: ${{ secrets.TRIGGER_TOKEN }}
 ```
+
+## Release Please Workflow
+
+This workflow automates the release process using the
+[Release Please tool](https://github.com/googleapis/release-please).
+It can be reused across multiple repositories to ensure consistent versioning
+and changelog generation. To use this workflow in your repository, add the
+following file `./.github/workflows/release.yml`:
+
+```yaml
+name: Release
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    uses: infitx-org/actions/.github/workflows/release.yaml@main
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}
+```
