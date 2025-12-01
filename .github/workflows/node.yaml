@@ -96,8 +96,7 @@ jobs:
           node-version: ${{ inputs.node-version }}
           cache: 'npm'
       - run: npm ci
-      - run: mkdir -p ./audit/results
-      - run: npm run audit:check
+      - run: npm run ci-audit
       - name: Upload Audit Results
         if: always()
         uses: actions/upload-artifact@v5
