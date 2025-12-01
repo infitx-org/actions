@@ -1,3 +1,4 @@
+name: Docker workflow
 on:
   workflow_call:
     inputs:
