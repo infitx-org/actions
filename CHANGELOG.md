@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.0](https://github.com/infitx-org/actions/compare/v1.1.0...v1.2.0) (2025-12-09)
+
+
+### Features
+
+* add configurable context and dockerfile inputs for Docker image build ([fd1e922](https://github.com/infitx-org/actions/commit/fd1e92250cf1ab4cce484bcb7551e34e81a8a3d1))
+* add configurable license scan option in Docker workflow ([e8102af](https://github.com/infitx-org/actions/commit/e8102afa5a832c25a0a4c6d8b71083785f5a80b2))
+* add descriptive names for package.json checks in workflows ([c62ca57](https://github.com/infitx-org/actions/commit/c62ca579819e3529c63b969e7b9b04864d554700))
+* add package.json existence check for conditional license scanning ([c496059](https://github.com/infitx-org/actions/commit/c496059c2ee9cab05166a244e64be6b3360d8554))
+* allow configurable release type in Release Workflow ([d2e5a7a](https://github.com/infitx-org/actions/commit/d2e5a7a8fd1f71c51abcb5c0f18c01e770cef410))
+
 ## [1.1.0](https://github.com/infitx-org/actions/compare/v1.0.2...v1.1.0) (2025-12-01)
 
 
