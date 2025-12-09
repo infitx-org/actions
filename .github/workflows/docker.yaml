@@ -116,6 +116,8 @@ jobs:
           DOCKER_BUILD_SUMMARY: 'false'
         with:
           push: true
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
