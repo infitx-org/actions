@@ -80,7 +80,16 @@ jobs:
           severity-cutoff: critical
           output-format: table
 
+      - id: check-package
+        run: |
+          if [ -f ./package.json ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: License scan
+        if: ${{ steps.check-package.outputs.exists == 'true' }}
         run: |
           git clone https://github.com/mojaloop/license-scanner /tmp/license-scanner
           cd /tmp/license-scanner
@@ -88,6 +97,7 @@ jobs:
           mode=docker dockerImages=${{ env.TEST_TAG }} make run
 
       - name: Upload License scan results
+        if: ${{ steps.check-package.outputs.exists == 'true' }}
         uses: actions/upload-artifact@v5
         with:
           name: license-scan-results-${{ inputs.image }}

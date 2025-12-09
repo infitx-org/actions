@@ -3,11 +3,6 @@ run-name: release-please => ${{  github.event.head_commit.message }}
 
 on:
   workflow_call:
-    inputs:
-      type:
-        required: false
-        type: string
-        default: node
     secrets:
       token:
         required: false
@@ -18,8 +13,15 @@ jobs:
     env:
       token: ${{ secrets.token }}
     steps:
+      - id: check-package
+        run: |
+          if [ -f ./package.json ]; then
+            echo "type=node" >> $GITHUB_OUTPUT
+          else
+            echo "type=simple" >> $GITHUB_OUTPUT
+          fi
       - uses: googleapis/release-please-action@v4
         if: ${{ env.token != '' }}
         with:
           token: ${{ env.token }}
-          release-type: ${{ inputs.type }}
+          release-type: ${{ steps.check-package.outputs.type }}

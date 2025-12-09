@@ -242,5 +242,5 @@ jobs:
   release:
     uses: infitx-org/actions/.github/workflows/release.yaml@main
     secrets:
-      token: ${{ secrets.GITHUB_TOKEN }}
+      token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 ```
