@@ -3,6 +3,11 @@ run-name: release-please => ${{  github.event.head_commit.message }}
 
 on:
   workflow_call:
+    inputs:
+      type:
+        required: false
+        type: string
+        default: node
     secrets:
       token:
         required: false
@@ -17,4 +22,4 @@ jobs:
         if: ${{ env.token != '' }}
         with:
           token: ${{ env.token }}
-          release-type: node
+          release-type: ${{ inputs.type }}
