@@ -233,11 +233,6 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-
 jobs:
   release:
     uses: infitx-org/actions/.github/workflows/release.yaml@main

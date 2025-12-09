@@ -13,7 +13,8 @@ jobs:
     env:
       token: ${{ secrets.token }}
     steps:
-      - id: check-package
+      - name: Check for package.json
+        id: check-package
         run: |
           if [ -f ./package.json ]; then
             echo "type=node" >> $GITHUB_OUTPUT

@@ -80,7 +80,8 @@ jobs:
           severity-cutoff: critical
           output-format: table
 
-      - id: check-package
+      - name: Check for package.json
+        id: check-package
         run: |
           if [ -f ./package.json ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
