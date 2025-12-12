@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/infitx-org/actions/compare/v1.1.0...v1.2.0) (2025-12-09)
+
+
+### Features
+
+* allow configurable release type in Release Workflow ([d2e5a7a](https://github.com/infitx-org/actions/commit/d2e5a7a8fd1f71c51abcb5c0f18c01e770cef410))
+
 ## [1.1.0](https://github.com/infitx-org/actions/compare/v1.0.2...v1.1.0) (2025-12-01)
 
 
