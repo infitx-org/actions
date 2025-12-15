@@ -7,6 +7,12 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+  issues: read
+  checks: write
+  pull-requests: write
+
 jobs:
   node:
     uses: ./.github/workflows/node.yaml

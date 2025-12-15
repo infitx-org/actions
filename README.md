@@ -43,6 +43,12 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+  issues: read
+  checks: write
+  pull-requests: write
+
 jobs:
   node:
     uses: infitx-org/actions/.github/workflows/node.yaml@main
@@ -239,3 +245,24 @@ jobs:
     secrets:
       token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 ```
+
+### Configuring the RELEASE_PLEASE_TOKEN
+
+To allow the Release Please workflow to create release pull requests and
+GitHub releases, you need to provide a personal access token (PAT) with the
+`repo` scope. Create a new PAT in your GitHub account settings and add it
+as a secret named `RELEASE_PLEASE_TOKEN` in your repository settings.
+
+1. Navigate to https://github.com/settings/personal-access-tokens/new
+1. Fill the fields as needed and ensure the following permissions are selected:
+
+   - Contents: Read & Write
+   - Pull requests: Read & Write
+   ![personal access tokenpermissions](img/pat-permissions.png)
+1. Click "Generate token" and copy the generated token.
+1. Go to your repository on GitHub, navigate to "Settings" > "Secrets and
+   variables" > "Actions".
+1. Click "New repository secret", name it `RELEASE_PLEASE_TOKEN`, and paste the
+   copied token into the "Value" field.
+![new action secret](img/new-action-secret.png)
+1. Click "Add secret" to save.
