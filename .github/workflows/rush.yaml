@@ -10,9 +10,12 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - name: Use Node.js ${{ inputs.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
           cache: pnpm
@@ -39,12 +42,16 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - name: Use Node.js ${{ inputs.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
-          cache: 'npm'
+          cache: pnpm
+          cache-dependency-path: common/config/rush/pnpm-lock.yaml
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
@@ -72,12 +79,16 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - name: Use Node.js ${{ inputs.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
-          cache: 'npm'
+          cache: pnpm
+          cache-dependency-path: common/config/rush/pnpm-lock.yaml
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - run: rush ci-audit
@@ -92,12 +103,16 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - name: Use Node.js ${{ inputs.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
-          cache: 'npm'
+          cache: pnpm
+          cache-dependency-path: common/config/rush/pnpm-lock.yaml
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - run: rush ci-lint
@@ -106,12 +121,16 @@ jobs:
   deprecation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - name: Use Node.js ${{ inputs.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
-          cache: 'npm'
+          cache: pnpm
+          cache-dependency-path: common/config/rush/pnpm-lock.yaml
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - run: rush ci-deprecation
