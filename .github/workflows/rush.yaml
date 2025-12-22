@@ -60,7 +60,7 @@ jobs:
         name: Generate Code Coverage Report
       - id: check-report
         run: |
-          if [ -f ./apps/release/coverage/report.json ]; then
+          if [ -f ./coverage/report.json ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -69,8 +69,8 @@ jobs:
         if: ${{ steps.check-report.outputs.exists == 'true' }}
         id: coverage
         with:
-          coverage-file: ./apps/release/coverage/report.json
-          base-coverage-file: ./apps/release/coverage/report.json
+          coverage-file: ./coverage/report.json
+          base-coverage-file: ./coverage/report.json
           output: report-markdown
       - uses: marocchino/sticky-pull-request-comment@v2
         with:
