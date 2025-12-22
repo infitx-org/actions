@@ -1,0 +1,117 @@
+name: Rush CI Workflow
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: '24.x'
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+      - name: Rush Install
+        run: node common/scripts/install-run-rush.js install
+      - name: Rush rebuild
+        run: node common/scripts/install-run-rush.js rebuild --verbose --production
+      - run: rush ci-unit
+        name: Run Unit Tests
+      - id: check-report
+        run: |
+          if [ -f ./coverage/junit.xml ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Publish Test Results
+        if: ${{ steps.check-report.outputs.exists == 'true' }}
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: |
+            **/coverage/junit.xml
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+      - name: Rush Install
+        run: node common/scripts/install-run-rush.js install
+      - name: Rush rebuild
+        run: node common/scripts/install-run-rush.js rebuild --verbose --production
+      - run: rush ci-coverage
+        name: Generate Code Coverage Report
+      - id: check-report
+        run: |
+          if [ -f ./apps/release/coverage/report.json ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      - uses: ArtiomTr/jest-coverage-report-action@v2
+        if: ${{ steps.check-report.outputs.exists == 'true' }}
+        id: coverage
+        with:
+          coverage-file: ./apps/release/coverage/report.json
+          base-coverage-file: ./apps/release/coverage/report.json
+          output: report-markdown
+      - uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: ${{ steps.coverage.outputs.report }}
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+      - name: Rush Install
+        run: node common/scripts/install-run-rush.js install
+      - run: rush ci-audit
+        name: Audit Check for dependencies
+      - name: Upload Audit Results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: audit-results
+          path: '**/audit/auditResults.json'
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+      - name: Rush Install
+        run: node common/scripts/install-run-rush.js install
+      - run: rush ci-lint
+        name: Lint Check
+
+  deprecation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+      - name: Rush Install
+        run: node common/scripts/install-run-rush.js install
+      - run: rush ci-deprecation
+        name: Check for Deprecated dependencies
