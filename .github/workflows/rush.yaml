@@ -24,7 +24,7 @@ jobs:
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
         run: node common/scripts/install-run-rush.js rebuild --verbose
-      - run: rush ci-unit
+      - run: node common/scripts/install-run-rush.js ci-unit
         name: Run Unit Tests
       - id: check-report
         run: |
@@ -56,7 +56,7 @@ jobs:
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
         run: node common/scripts/install-run-rush.js rebuild --verbose
-      - run: rush ci-coverage
+      - run: node common/scripts/install-run-rush.js ci-coverage
         name: Generate Code Coverage Report
       - id: check-report
         run: |
@@ -91,7 +91,7 @@ jobs:
           cache-dependency-path: common/config/rush/pnpm-lock.yaml
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
-      - run: rush ci-audit
+      - run: node common/scripts/install-run-rush.js ci-audit
         name: Audit Check for dependencies
       - name: Upload Audit Results
         if: always()
@@ -115,7 +115,7 @@ jobs:
           cache-dependency-path: common/config/rush/pnpm-lock.yaml
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
-      - run: rush ci-lint
+      - run: node common/scripts/install-run-rush.js ci-lint
         name: Lint Check
 
   deprecation:
@@ -133,5 +133,5 @@ jobs:
           cache-dependency-path: common/config/rush/pnpm-lock.yaml
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
-      - run: rush ci-deprecation
+      - run: node common/scripts/install-run-rush.js ci-deprecation
         name: Check for Deprecated dependencies
