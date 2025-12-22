@@ -6,8 +6,6 @@ on:
         required: false
         type: string
         default: '24.x'
-env:
-  RUSH_PNPM_STORE_PATH: global
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
@@ -20,8 +18,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
-          cache: pnpm
-          cache-dependency-path: common/config/rush/pnpm-lock.yaml
+      - name: cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: common/temp/pnpm-store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
@@ -52,8 +53,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
-          cache: pnpm
-          cache-dependency-path: common/config/rush/pnpm-lock.yaml
+      - name: cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: common/temp/pnpm-store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
@@ -89,8 +93,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
-          cache: pnpm
-          cache-dependency-path: common/config/rush/pnpm-lock.yaml
+      - name: cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: common/temp/pnpm-store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - run: node common/scripts/install-run-rush.js ci-audit
@@ -113,8 +120,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
-          cache: pnpm
-          cache-dependency-path: common/config/rush/pnpm-lock.yaml
+      - name: cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: common/temp/pnpm-store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - run: node common/scripts/install-run-rush.js ci-lint
@@ -131,8 +141,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
-          cache: pnpm
-          cache-dependency-path: common/config/rush/pnpm-lock.yaml
+      - name: cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: common/temp/pnpm-store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - run: node common/scripts/install-run-rush.js ci-deprecation
