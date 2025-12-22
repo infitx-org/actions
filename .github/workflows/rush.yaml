@@ -6,6 +6,8 @@ on:
         required: false
         type: string
         default: '24.x'
+env:
+  RUSH_PNPM_STORE_PATH: global
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
