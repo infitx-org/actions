@@ -18,7 +18,7 @@ jobs:
         id: check-package
         run: |
           if [ -f ./release-please-config.json ]; then
-            echo "type=null" >> $GITHUB_OUTPUT
+            echo "type=" >> $GITHUB_OUTPUT
           elif [ -f ./package.json ]; then
             echo "type=node" >> $GITHUB_OUTPUT
           else
