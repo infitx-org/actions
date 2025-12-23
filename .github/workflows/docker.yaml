@@ -52,7 +52,7 @@ jobs:
           images: ${{ inputs.registry }}/${{ inputs.owner }}/${{ inputs.image }}
           tags: |
             type=match,pattern=v(\d+\.\d+\.\d+(-\S+)?)$,group=1
-            type=match,pattern=^PR-(\d+)$,group=1
+            type=ref,event=pr
       - name: Exit if no tags matched
         if: ${{ steps.meta.outputs.tags == '' }}
         run: |
