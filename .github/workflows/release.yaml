@@ -13,6 +13,7 @@ jobs:
     env:
       token: ${{ secrets.token }}
     steps:
+      - uses: actions/checkout@v4
       - name: Check for package.json
         id: check-package
         run: |
