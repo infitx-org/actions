@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Use Node.js ${{ inputs.node-version }}
+      - &node
+        name: Use Node.js ${{ inputs.node-version }}
         uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
@@ -32,6 +33,7 @@ jobs:
     needs: setup
     steps:
       - uses: actions/checkout@v6
+      - *node
       - *cache
       - run: node common/scripts/install-run-rush.js ci-unit
         name: Run Unit Tests
@@ -53,6 +55,7 @@ jobs:
     needs: setup
     steps:
       - uses: actions/checkout@v6
+      - *node
       - *cache
       - run: node common/scripts/install-run-rush.js ci-coverage
         name: Generate Code Coverage Report
@@ -80,6 +83,7 @@ jobs:
     needs: setup
     steps:
       - uses: actions/checkout@v6
+      - *node
       - *cache
       - run: node common/scripts/install-run-rush.js ci-audit
         name: Audit Check for dependencies
@@ -95,6 +99,7 @@ jobs:
     needs: setup
     steps:
       - uses: actions/checkout@v6
+      - *node
       - *cache
       - run: node common/scripts/install-run-rush.js ci-lint
         name: Lint Check
@@ -104,6 +109,7 @@ jobs:
     needs: setup
     steps:
       - uses: actions/checkout@v6
+      - *node
       - *cache
       - run: node common/scripts/install-run-rush.js ci-deprecation
         name: Check for Deprecated dependencies
