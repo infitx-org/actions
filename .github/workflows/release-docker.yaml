@@ -60,6 +60,8 @@ jobs:
     uses: ./.github/workflows/docker.yaml
     with:
       dockerfile: ${{ matrix.dockerfile }}
+      tags: ${{ matrix.tags }}
+      image: ${{ matrix.image }}
       license-scan: false
       downstream: https://api.github.com/repos/infitx-org/profile-cd/actions/workflows/docker-image.yaml/dispatches
     secrets:
