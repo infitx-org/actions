@@ -45,7 +45,7 @@ jobs:
           PACKAGES="["
           for path in ${{ join(fromJson(steps.release.outputs.paths_released), ' ') }}; do
             for file in $path/**/*Dockerfile; do
-              PACKAGES="$PACKAGES{\"dockerfile\":\"$file\",\"image\":\"$(basename $file | cut -d'.' -f1)\",\"tag\":\"v$(jq -r ".[\"$path\"]" < .release-please-manifest.json)\"},"
+              PACKAGES="$PACKAGES{\"dockerfile\":\"$file\",\"image\":\"$(basename $file | cut -d'.' -f1)\",\"tags\":\"v$(jq -r ".[\"$path\"]" < .release-please-manifest.json)\"},"
             done
           done
           PACKAGES="${PACKAGES%,}]"
