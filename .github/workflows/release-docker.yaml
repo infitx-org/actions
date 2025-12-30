@@ -18,6 +18,7 @@ jobs:
       token: ${{ secrets.token }}
     outputs:
       changes: ${{ steps.result.outputs.changes }}
+      released: ${{ steps.release.outputs.releases_created }}
     steps:
       - uses: actions/checkout@v4
       - name: Check for package.json
@@ -38,7 +39,7 @@ jobs:
           release-type: ${{ steps.check-package.outputs.type }}
       - name: Find Dockerfiles for released paths
         id: result
-        if: steps.release.outputs.paths_released != ''
+        if: steps.release.outputs.releases_created
         run: |
           shopt -s nullglob globstar extglob
           PACKAGES="["
@@ -52,7 +53,7 @@ jobs:
 
   build:
     needs: release
-    if: needs.release.outputs.changes != ''
+    if: needs.release.outputs.released
     strategy:
       matrix:
         include: ${{ fromJson(needs.release.outputs.changes) }}
