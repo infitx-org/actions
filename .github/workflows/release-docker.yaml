@@ -44,7 +44,7 @@ jobs:
           shopt -s nullglob globstar extglob
           PACKAGES="["
           for path in ${{ join(fromJson(steps.release.outputs.paths_released), ' ') }}; do
-            for file in "$path/*Dockerfile"; do
+            for file in $path/*Dockerfile; do
               PACKAGES="$PACKAGES{\"dockerfile\":\"$file\",\"image\":\"$(basename $file | cut -d'.' -f1)\"},"
             done
           done
