@@ -114,3 +114,52 @@ jobs:
       - *cache
       - run: node common/scripts/install-run-rush.js ci-deprecation
         name: Check for Deprecated dependencies
+
+  changes:
+    runs-on: ubuntu-latest
+    # Required permissions
+    permissions:
+      pull-requests: read
+    outputs:
+      # Expose matched filters as job 'packages' output variable
+      changes: ${{ steps.result.outputs.changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: List Dockerfiles
+        id: docker-files
+        run: |
+          shopt -s nullglob globstar extglob
+          echo -e "filters<<EOF" >> $GITHUB_OUTPUT
+          for file in app/**/*Dockerfile; do
+            echo "$file: ${file%${file#*/*/}}package.json" >> $GITHUB_OUTPUT
+          done
+          echo "EOF" >> $GITHUB_OUTPUT
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: steps.docker-files.outputs.filters != ''
+        name: Filter changes
+        with:
+          filters: ${{ steps.docker-files.outputs.filters }}
+      - name: Convert changes to JSON
+        id: result
+        if: steps.filter.outputs.changes != ''
+        run: |
+          PACKAGES="["
+          for file in ${{ join(fromJson(steps.filter.outputs.changes), ' ') }}; do
+            PACKAGES="$PACKAGES{\"dockerfile\":\"$file\",\"image\":\"$(basename $file | cut -d'.' -f1)\"},"
+          done
+          PACKAGES="${PACKAGES%,}]"
+          echo "changes=$PACKAGES" >> $GITHUB_OUTPUT
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.changes != ''
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.changes.outputs.changes) }}
+    uses: ./.github/workflows/docker.yaml
+    with:
+      dockerfile: ${{ matrix.dockerfile }}
+      license-scan: false
+      downstream: https://api.github.com/repos/infitx-org/profile-cd/actions/workflows/docker-image.yaml/dispatches

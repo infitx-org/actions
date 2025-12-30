@@ -1,0 +1,66 @@
+name: Release Workflow
+run-name: release-please => ${{  github.event.head_commit.message }}
+
+on:
+  workflow_call:
+    secrets:
+      token:
+        required: false
+      REGISTRY_PASSWORD:
+        required: true
+      TRIGGER_DOWNSTREAM:
+        required: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      token: ${{ secrets.token }}
+    outputs:
+      changes: ${{ steps.result.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for package.json
+        id: check-package
+        run: |
+          if [ -f ./release-please-config.json ]; then
+            echo "type=" >> $GITHUB_OUTPUT
+          elif [ -f ./package.json ]; then
+            echo "type=node" >> $GITHUB_OUTPUT
+          else
+            echo "type=simple" >> $GITHUB_OUTPUT
+          fi
+      - uses: googleapis/release-please-action@v4
+        id: release
+        if: ${{ env.token != '' }}
+        with:
+          token: ${{ env.token }}
+          release-type: ${{ steps.check-package.outputs.type }}
+      - name: Find Dockerfiles for released paths
+        id: result
+        if: steps.release.outputs.paths_released != ''
+        run: |
+          shopt -s nullglob globstar extglob
+          PACKAGES="["
+          for path in ${{ join(fromJson(steps.release.outputs.paths_released), ' ') }}; do
+            for file in "$path/*Dockerfile"; do
+              PACKAGES="$PACKAGES{\"dockerfile\":\"$file\",\"image\":\"$(basename $file | cut -d'.' -f1)\"},"
+            done
+          done
+          PACKAGES="${PACKAGES%,}]"
+          echo "changes=$PACKAGES" >> $GITHUB_OUTPUT
+
+  build:
+    needs: release
+    if: needs.release.outputs.changes != ''
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.release.outputs.changes) }}
+    uses: ./.github/workflows/docker.yaml
+    with:
+      dockerfile: ${{ matrix.dockerfile }}
+      license-scan: false
+      downstream: https://api.github.com/repos/infitx-org/profile-cd/actions/workflows/docker-image.yaml/dispatches
+    secrets:
+      REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+      TRIGGER_DOWNSTREAM: ${{ secrets.TRIGGER_DOWNSTREAM }}

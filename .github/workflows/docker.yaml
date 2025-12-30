@@ -30,7 +30,7 @@ on:
         default: true
     secrets:
       REGISTRY_PASSWORD:
-        required: true
+        required: false
       TRIGGER_DOWNSTREAM:
         required: false
 
