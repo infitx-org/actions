@@ -10,6 +10,9 @@ on:
         required: false
         type: string
         default: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.repo.name || github.event.repository.name }}
+      tag:
+        required: false
+        type: string
       context:
         type: string
         default: .
@@ -50,9 +53,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ inputs.registry }}/${{ inputs.owner }}/${{ inputs.image }}
-          tags: |
-            type=match,pattern=(v\d+\.\d+\.\d+(-\S+)?)$,group=1
-            type=ref,event=pr
+          tags: ${{ inputs.tag }}
       - name: Exit if no tags matched
         if: ${{ steps.meta.outputs.tags == '' }}
         run: |
