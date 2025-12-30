@@ -39,7 +39,7 @@ jobs:
           release-type: ${{ steps.check-package.outputs.type }}
       - name: Find Dockerfiles for released paths
         id: result
-        if: steps.release.outputs.releases_created
+        if: steps.release.outputs.releases_created == 'true'
         run: |
           shopt -s nullglob globstar extglob
           PACKAGES="["
@@ -53,7 +53,7 @@ jobs:
 
   build:
     needs: release
-    if: needs.release.outputs.released
+    if: needs.release.outputs.released == 'true'
     strategy:
       matrix:
         include: ${{ fromJson(needs.release.outputs.changes) }}
