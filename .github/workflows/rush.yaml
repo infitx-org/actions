@@ -118,8 +118,6 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     # Required permissions
-    permissions:
-      pull-requests: read
     outputs:
       # Expose matched filters as job 'packages' output variable
       changes: ${{ steps.result.outputs.changes }}
