@@ -125,7 +125,7 @@ jobs:
       changes: ${{ steps.result.outputs.changes }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: List Dockerfiles
         id: docker-files
         run: |
