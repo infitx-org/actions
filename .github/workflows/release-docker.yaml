@@ -3,6 +3,11 @@ run-name: release-please => ${{  github.event.head_commit.message }}
 
 on:
   workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: '24.x'
     secrets:
       token:
         required: false
@@ -17,7 +22,8 @@ jobs:
     env:
       token: ${{ secrets.token }}
     outputs:
-      changes: ${{ steps.result.outputs.changes }}
+      docker: ${{ steps.docker.outputs.changes }}
+      npm: ${{ steps.npm.outputs.changes }}
       released: ${{ steps.release.outputs.releases_created }}
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +44,7 @@ jobs:
           token: ${{ env.token }}
           release-type: ${{ steps.check-package.outputs.type }}
       - name: Find Dockerfiles for released paths
-        id: result
+        id: docker
         if: steps.release.outputs.releases_created == 'true'
         run: |
           shopt -s nullglob globstar extglob
@@ -50,13 +56,32 @@ jobs:
           done
           PACKAGES="${PACKAGES%,}]"
           echo "changes=$PACKAGES" >> $GITHUB_OUTPUT
+      - name: Find NPM packages for released paths
+        id: npm
+        if: steps.release.outputs.releases_created == 'true'
+        run: |
+          shopt -s nullglob globstar extglob
+          PACKAGES="["
+          for path in ${{ join(fromJson(steps.release.outputs.paths_released), ' ') }}; do
+            if [ -f "$path/package.json" ]; then
+              VERSION=$(jq -r .version < "$path/package.json")
+              NAME=$(jq -r .name < "$path/package.json")
+              PUBLISH=$(jq -r '.scripts.ci-publish' < "$path/package.json")
+              if [ -z "$PUBLISH" ] || [ "$PUBLISH" == "false" ]; then
+                continue
+              fi
+              PACKAGES="$PACKAGES{\"package\":\"$NAME\",\"path\":\"$path\"},"
+            fi
+          done
+          PACKAGES="${PACKAGES%,}]"
+          echo "changes=$PACKAGES" >> $GITHUB_OUTPUT
 
-  build:
+  publish-image:
     needs: release
-    if: needs.release.outputs.released == 'true'
+    if: needs.release.outputs.released == 'true' && needs.release.outputs.docker.length > 0
     strategy:
       matrix:
-        include: ${{ fromJson(needs.release.outputs.changes) }}
+        include: ${{ fromJson(needs.release.outputs.docker) }}
     uses: ./.github/workflows/docker.yaml
     with:
       dockerfile: ${{ matrix.dockerfile }}
@@ -67,3 +92,53 @@ jobs:
     secrets:
       REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
       TRIGGER_DOWNSTREAM: ${{ secrets.TRIGGER_DOWNSTREAM }}
+
+  setup-node:
+    needs: release
+    if: needs.release.outputs.released == 'true' && needs.release.outputs.npm.length > 0
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - &node
+        name: Use Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+      - &cache
+        name: cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: |
+            common/temp
+            app/**/node_modules
+            lib/**/node_modules
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
+      - name: Rush Install
+        run: node common/scripts/install-run-rush.js install
+      - name: Rush rebuild
+        run: node common/scripts/install-run-rush.js rebuild --verbose
+
+  publish-package:
+    needs:
+      - release
+      - setup-node
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.release.outputs.npm) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - *node
+      - *cache
+      - name: Run publish script ${{ matrix.package }}
+        run: |
+          cd ${{ matrix.path }}
+          npm run ci-publish
+        id: publish
+      # optionally publish to GitHub Pages if the publish script outputs a pages path
+      - name: Publish GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        if: steps.publish.outputs.pages
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ${{ matrix.path }}/${{steps.publish.outputs.pages}}

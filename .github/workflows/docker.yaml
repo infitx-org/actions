@@ -1,4 +1,4 @@
-name: Docker workflow
+name: Docker image publish
 on:
   workflow_call:
     inputs:
