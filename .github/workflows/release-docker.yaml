@@ -67,7 +67,7 @@ jobs:
               VERSION=$(jq -r .version < "$path/package.json")
               NAME=$(jq -r .name < "$path/package.json")
               PUBLISH=$(jq -r '.scripts."ci-publish"' < "$path/package.json")
-              if [ -z "$PUBLISH" ] || [ "$PUBLISH" == "false" ]; then
+              if [ -z "$PUBLISH" ] || [ "$PUBLISH" == "false" ] || [ "$PUBLISH" == "null" ]; then
                 continue
               fi
               PACKAGES="$PACKAGES{\"package\":\"$NAME\",\"path\":\"$path\"},"
