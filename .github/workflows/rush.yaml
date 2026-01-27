@@ -24,12 +24,16 @@ jobs:
             common/temp
             app/**/node_modules
             app/*/dist
+            app/*/.rush
             core/**/node_modules
             core/*/dist
+            core/*/.rush
             ext/**/node_modules
             ext/*/dist
+            ext/*/.rush
             library/**/node_modules
             library/*/dist
+            library/*/.rush
           key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
