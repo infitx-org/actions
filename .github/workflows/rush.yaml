@@ -26,6 +26,8 @@ jobs:
             app/*/dist
             core/**/node_modules
             core/*/dist
+            ext/**/node_modules
+            ext/*/dist
             library/**/node_modules
             library/*/dist
           key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
