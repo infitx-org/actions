@@ -64,6 +64,7 @@ jobs:
       - name: check-allure-results
         id: allure-results
         run: |
+          shopt -s nullglob globstar extglob
           if ls **/allure-results/*.json 1> /dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
@@ -72,6 +73,7 @@ jobs:
       - name: Collect Allure Results
         if: ${{ steps.allure-results.outputs.exists == 'true' }}
         run: |
+          shopt -s nullglob globstar extglob
           rm -rf ./allure-results
           mkdir -p ./allure-results
           find . -path '**/allure-results/*.json' -exec cp {} ./allure-results/ \;
