@@ -61,6 +61,33 @@ jobs:
         with:
           files: |
             **/coverage/junit.xml
+      - name: check-allure-results
+        id: allure-results
+        run: |
+          if ls **/coverage/allure-results/*.json 1> /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Collect Allure Results
+        if: ${{ steps.allure-results.outputs.exists == 'true' }}
+        run: |
+          rm -rf ./allure-results
+          mkdir -p ./allure-results
+          find . -path '**/allure-results/*.json' -exec cp {} ./allure-results/ \;
+          # find where allure is installed in **/node_modules/.bin/allure and run allure generate
+          ALLURE_PATH=$(find . -path '**/node_modules/.bin/allure' | head -n 1)
+          if [ -z "$ALLURE_PATH" ]; then
+            echo "Allure command not found"
+            exit 1
+          fi
+          $ALLURE_PATH generate ./allure-results --clean -o ./allure-report
+      - name: Run Allure Action
+        if: ${{ steps.allure-results.outputs.exists == 'true' }}
+        uses: allure-framework/allure-action@v0
+        with:
+          report-directory: "./allure-report"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
   coverage:
     runs-on: ubuntu-latest
     needs: setup
