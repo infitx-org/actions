@@ -64,7 +64,7 @@ jobs:
       - name: check-allure-results
         id: allure-results
         run: |
-          if ls **/coverage/allure-results/*.json 1> /dev/null 2>&1; then
+          if ls **/allure-results/*.json 1> /dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
