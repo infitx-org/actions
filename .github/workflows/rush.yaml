@@ -50,7 +50,7 @@ jobs:
         name: Run Unit Tests
       - id: check-report
         run: |
-          if [ -f ./coverage/junit.xml ]; then
+          if ls **/coverage/junit.xml 1> /dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
