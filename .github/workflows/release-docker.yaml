@@ -146,6 +146,7 @@ jobs:
         run: exit 1
       - name: Run publish script ${{ matrix.package }}
         run: |
+          node common/scripts/install-run-rush.js install
           cd ${{ matrix.path }}
           npm run ci-publish
         id: publish
