@@ -93,6 +93,33 @@ jobs:
           severity-cutoff: critical
           output-format: table
 
+      - name: Generate vulnerability summary
+        if: failure() && steps.scan.outcome == 'failure'
+        run: |
+          echo "## 🚨 Critical Vulnerabilities Detected" > /tmp/vuln-summary.md
+          echo "" >> /tmp/vuln-summary.md
+          echo "The following critical vulnerabilities were found during the security scan:" >> /tmp/vuln-summary.md
+          echo "" >> /tmp/vuln-summary.md
+
+          # Extract header and critical vulnerabilities from scan output
+          if grep -qi "Critical" "${{ steps.scan.outputs.output-file }}"; then
+            echo "\`\`\`" >> /tmp/vuln-summary.md
+            head -1 "${{ steps.scan.outputs.output-file }}" >> /tmp/vuln-summary.md
+            grep -i "Critical" "${{ steps.scan.outputs.output-file }}" >> /tmp/vuln-summary.md
+            echo "\`\`\`" >> /tmp/vuln-summary.md
+          else
+            echo "No critical vulnerabilities found (but build failed for other reasons)." >> /tmp/vuln-summary.md
+          fi
+
+          echo "" >> /tmp/vuln-summary.md
+          echo "Please review and address these vulnerabilities before merging." >> /tmp/vuln-summary.md
+
+      - uses: marocchino/sticky-pull-request-comment@v2
+        name: Post vulnerability summary comment
+        if: failure() && steps.scan.outcome == 'failure' && github.event_name == 'pull_request'
+        with:
+          path: /tmp/vuln-summary.md
+
       - name: Check for package.json
         id: check-package
         run: |
