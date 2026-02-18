@@ -102,10 +102,10 @@ jobs:
           echo "" >> /tmp/vuln-summary.md
 
           # Extract header and critical vulnerabilities from scan output
-          if grep -qi "Critical" "${{ steps.scan.outputs.output-file }}"; then
+          if grep -qi "Critical" "${{ steps.scan.outputs.table }}"; then
             echo "\`\`\`" >> /tmp/vuln-summary.md
-            head -1 "${{ steps.scan.outputs.output-file }}" >> /tmp/vuln-summary.md
-            grep -i "Critical" "${{ steps.scan.outputs.output-file }}" >> /tmp/vuln-summary.md
+            head -1 "${{ steps.scan.outputs.table }}" >> /tmp/vuln-summary.md
+            grep -i "Critical" "${{ steps.scan.outputs.table }}" >> /tmp/vuln-summary.md
             echo "\`\`\`" >> /tmp/vuln-summary.md
           else
             echo "No critical vulnerabilities found (but build failed for other reasons)." >> /tmp/vuln-summary.md
