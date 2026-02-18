@@ -119,6 +119,7 @@ jobs:
         if: failure() && steps.scan.outcome == 'failure' && github.event_name == 'pull_request'
         with:
           path: /tmp/vuln-summary.md
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check for package.json
         id: check-package
