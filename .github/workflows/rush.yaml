@@ -83,7 +83,7 @@ jobs:
             echo "Allure command not found"
             exit 1
           fi
-          $ALLURE_PATH generate
+          $ALLURE_PATH generate ./allure-results
       - name: Run Allure Action
         if: ${{ steps.allure-results.outputs.exists == 'true' }}
         uses: allure-framework/allure-action@v0
