@@ -136,6 +136,9 @@ jobs:
     if: needs.setup.outputs.chromatic
     env:
       CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+      CHROMATIC_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      CHROMATIC_SHA: ${{ github.event.pull_request.head.sha || github.ref }}
+      CHROMATIC_SLUG: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -145,10 +148,6 @@ jobs:
       - *cache
       - run: node common/scripts/install-run-rush.js ci-chromatic --to git:origin/${{ github.event.pull_request.base.ref }}
         name: Chromatic Storybook
-        env:
-          CHROMATIC_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
-          CHROMATIC_SHA: ${{ github.event.pull_request.head.sha || github.ref }}
-          CHROMATIC_SLUG: ${{ github.repository }}
   integration:
     runs-on: ubuntu-latest
     needs: setup
