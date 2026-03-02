@@ -49,12 +49,12 @@ jobs:
         id: config
         run: |
           if [ -z "$CHROMATIC_PROJECT_TOKEN" ]; then
-            echo "chromatic=false" >> $GITHUB_OUTPUT
+            echo "chromatic=" >> $GITHUB_OUTPUT
           else
             echo "chromatic=true" >> $GITHUB_OUTPUT
           fi
           if [ -f ./test/integration/kustomization.yaml ]; then
-            echo "integration=true" >> $GITHUB_OUTPUT
+            echo "integration=" >> $GITHUB_OUTPUT
           else
             echo "integration=false" >> $GITHUB_OUTPUT
           fi
