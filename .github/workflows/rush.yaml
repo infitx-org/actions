@@ -48,7 +48,7 @@ jobs:
       - name: Config check
         id: config
         run: |
-          if [ -z "$CHROMATIC_PROJECT_TOKEN" ]; then
+          if [ -z "${{ secrets.CHROMATIC_PROJECT_TOKEN }}" ]; then
             echo "chromatic=" >> $GITHUB_OUTPUT
           else
             echo "chromatic=true" >> $GITHUB_OUTPUT
