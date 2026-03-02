@@ -138,6 +138,8 @@ jobs:
       CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - *node
       - *cache
       - run: node common/scripts/install-run-rush.js ci-chromatic --to git:${{ github.event.pull_request.base.ref }}
@@ -149,6 +151,8 @@ jobs:
     if: needs.setup.outputs.integration
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - *node
       - *cache
       - uses: rinx/setup-k3d@v0.0.4
