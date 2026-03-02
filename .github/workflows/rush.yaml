@@ -54,9 +54,9 @@ jobs:
             echo "chromatic=true" >> $GITHUB_OUTPUT
           fi
           if [ -f ./test/integration/kustomization.yaml ]; then
-            echo "integration=" >> $GITHUB_OUTPUT
+            echo "integration=true" >> $GITHUB_OUTPUT
           else
-            echo "integration=false" >> $GITHUB_OUTPUT
+            echo "integration=" >> $GITHUB_OUTPUT
           fi
   unit-tests:
     runs-on: ubuntu-latest
@@ -95,6 +95,13 @@ jobs:
         with:
           report-directory: (app|core|ext|library)/*/allure-report
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit and Push Summary
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test-summary.md
+          git commit -m "chore: add test summary to release PR"
+          git push origin HEAD:${{ github.head_ref }}
   coverage:
     runs-on: ubuntu-latest
     needs: setup
