@@ -142,7 +142,7 @@ jobs:
           fetch-depth: 0
       - *node
       - *cache
-      - run: node common/scripts/install-run-rush.js ci-chromatic --to git:${{ github.event.pull_request.base.ref }}
+      - run: node common/scripts/install-run-rush.js ci-chromatic --to git:origin/${{ github.event.pull_request.base.ref }}
         name: Chromatic Storybook
 
   integration:
@@ -158,7 +158,7 @@ jobs:
       - uses: rinx/setup-k3d@v0.0.4
         with:
           name: cluster
-      - run: node common/scripts/install-run-rush.js ci-integration --to git:${{ github.event.pull_request.base.ref }}
+      - run: node common/scripts/install-run-rush.js ci-integration --to git:origin/${{ github.event.pull_request.base.ref }}
         name: Run integration checks
 
   audit:
