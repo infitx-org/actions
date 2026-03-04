@@ -161,6 +161,9 @@ jobs:
       - uses: rinx/setup-k3d@v0.0.4
         with:
           name: cluster
+      - name: Deploy services
+        run: |
+          kubectl apply -k test/integration/
       - run: node common/scripts/install-run-rush.js ci-integration --to git:origin/${{ github.event.pull_request.base.ref }}
         name: Run integration checks
 
