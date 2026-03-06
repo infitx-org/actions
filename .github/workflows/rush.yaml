@@ -168,6 +168,8 @@ jobs:
             -p "9092:9092@agent:0:direct"
             -p "27017:27017@agent:0:direct"
             --agents 1
+            --no-lb
+            --k3s-arg "--disable=traefik,servicelb,metrics-server@server:*"
       - name: Deploy services
         run: |
           kubectl apply -k test/integration/
