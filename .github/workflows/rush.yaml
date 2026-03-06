@@ -158,9 +158,16 @@ jobs:
           fetch-depth: 0
       - *node
       - *cache
-      - uses: rinx/setup-k3d@v0.0.4
+      - uses: AbsaOSS/k3d-action@v2
         with:
-          name: cluster
+          cluster-name: cluster
+          k3d-version: v5.8.3
+          args: >-
+            -p "3306:3306@agent:0:direct"
+            -p "8180:8180@agent:0:direct"
+            -p "9092:9092@agent:0:direct"
+            -p "27017:27017@agent:0:direct"
+            --agents 1
       - name: Deploy services
         run: |
           kubectl apply -k test/integration/
