@@ -15,6 +15,8 @@ jobs:
     outputs:
       chromatic: ${{ steps.config.outputs.chromatic }}
       integration: ${{ steps.config.outputs.integration }}
+    env:
+        NPM_CONFIG_PREFIX: ${{ github.workspace }}/.npm-global
     steps:
       - uses: actions/checkout@v6
       - &node
@@ -27,6 +29,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
+            ${{ env.NPM_CONFIG_PREFIX }}
             common/temp
             app/**/node_modules
             app/*/dist
@@ -41,6 +44,10 @@ jobs:
             library/*/dist
             library/*/.rush
           key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
+      - name: Configure npm global directory
+        run: |
+          mkdir -p ${{ env.NPM_CONFIG_PREFIX }}
+          echo "${{ env.NPM_CONFIG_PREFIX }}/bin" >> $GITHUB_PATH
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
