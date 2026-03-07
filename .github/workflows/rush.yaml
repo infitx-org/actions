@@ -176,10 +176,10 @@ jobs:
           cluster-name: cluster
           k3d-version: v5.8.3
           args: >-
-            -p "3306:3306@agent:0:direct"
-            -p "8180:8180@agent:0:direct"
-            -p "9092:9092@agent:0:direct"
-            -p "27017:27017@agent:0:direct"
+            -p "3306:30006@agent:0:direct"
+            -p "8180:30080@agent:0:direct"
+            -p "9092:30092@agent:0:direct"
+            -p "27017:30017@agent:0:direct"
             --agents 1
             --no-lb
             --k3s-arg "--disable=traefik,servicelb,metrics-server@server:*"
