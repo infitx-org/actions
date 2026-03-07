@@ -9,6 +9,8 @@ on:
     secrets:
       CHROMATIC_PROJECT_TOKEN:
         required: false
+      UT_MASTER_KEY:
+        required: false
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -151,8 +153,6 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     needs: setup
-    env:
-        NPM_CONFIG_PREFIX: ${{ github.workspace }}/.npm-global
     if: needs.setup.outputs.integration
     steps:
       - uses: actions/checkout@v6
@@ -160,17 +160,6 @@ jobs:
           fetch-depth: 0
       - *node
       - *cache
-      - name: Cache Global NPM Packages
-        id: cache-global-npm
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.NPM_CONFIG_PREFIX }}
-          # The key changes if your workflow file changes (where you might add tools)
-          key: ${{ runner.os }}-npm-global-${{ hashFiles('app/*/package.json') }}
-      - name: Configure npm global directory
-        run: |
-          mkdir -p ${{ env.NPM_CONFIG_PREFIX }}
-          echo "${{ env.NPM_CONFIG_PREFIX }}/bin" >> $GITHUB_PATH
       - uses: AbsaOSS/k3d-action@v2
         with:
           cluster-name: cluster
@@ -184,11 +173,10 @@ jobs:
             --no-lb
             --k3s-arg "--disable=traefik,servicelb,metrics-server@server:*"
       - name: Deploy services
-        env:
-          CACHE_HIT: ${{ steps.cache-global-npm.outputs.cache-hit }}
-        run: |
-          kubectl apply -k test/integration/
+        run: kubectl apply -k test/integration/
       - run: node common/scripts/install-run-rush.js ci-integration --to git:origin/${{ github.event.pull_request.base.ref }}
+        env:
+          UT_MASTER_KEY: ${{ secrets.UT_MASTER_KEY }}
         name: Run integration checks
 
   audit:
