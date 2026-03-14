@@ -173,6 +173,7 @@ jobs:
           name: allure-reports
       - name: Deploy Reports to GitHub Pages
         uses: PavanMudigonda/html-reporter-github-pages@v1.5.21
+        id: deploy
         with:
           token: ${{ secrets.REPORT_TOKEN }}
           subfolder: docs
@@ -180,11 +181,10 @@ jobs:
           tool_name: ${{ matrix.package }}
           keep_reports: 15 # Automatically deletes the 16th oldest report
           external_repository: ${{ inputs.reports-repository }}
-      - name: Add Report Link to Summary
-        run: |
-          REPORT_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/${{ github.run_id }}/index.html"
-          echo "### 📊 Build Report" >> $GITHUB_STEP_SUMMARY
-          echo "The HTML report for this run is available here: [View Report]($REPORT_URL)" >> $GITHUB_STEP_SUMMARY
+      - uses: marocchino/sticky-pull-request-comment@v2
+        if: ${{ steps.deploy.outputs.latest_result_url }}
+        with:
+          message: 📊 ${{ matrix.package }} report published at ${{ steps.deploy.outputs.latest_result_url }}
   coverage:
     runs-on: ubuntu-latest
     needs: setup
