@@ -175,6 +175,7 @@ jobs:
         uses: PavanMudigonda/html-reporter-github-pages@v1.5.21
         with:
           token: ${{ secrets.REPORT_TOKEN }}
+          subfolder: docs
           test_results: ${{ matrix.report }}
           tool_name: ${{ matrix.package }}
           keep_reports: 15 # Automatically deletes the 16th oldest report
