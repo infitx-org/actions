@@ -97,6 +97,10 @@ jobs:
               gh gist view ${{ inputs.history-gist-id }} --filename "${file//__//\}" > "$file"
             done
           post: |
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "Pull request detected, skipping history sync."
+              exit 0
+            fi
             shopt -s globstar extglob
             for file in ${{ inputs.history-files }}; do
               gh gist edit ${{ inputs.history-gist-id }} --filename "${file//\//__}" "$file"
