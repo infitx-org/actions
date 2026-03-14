@@ -150,7 +150,11 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: allure-reports
-          path: +(app|core|ext|library)/*/allure-report
+          path: |
+            app/*/allure-report
+            core/*/allure-report
+            ext/*/allure-report
+            library/*/allure-report
 
   publish-report:
     needs:
