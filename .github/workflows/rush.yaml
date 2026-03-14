@@ -164,6 +164,7 @@ jobs:
     strategy:
       matrix:
         include: ${{ fromJson(needs.unit-tests.outputs.reports) }}
+      max-parallel: 1
     runs-on: ubuntu-latest
     steps:
       - name: Download Allure Report
