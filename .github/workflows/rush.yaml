@@ -101,7 +101,7 @@ jobs:
               echo "Pull request detected, skipping history sync."
               exit 0
             fi
-            shopt -s globstar extglob
+            shopt -s globstar extglob nullglob
             for file in ${{ inputs.history-files }}; do
               gh gist edit ${{ inputs.history-gist-id }} --filename "${file//\//__}" "$file"
             done
@@ -138,9 +138,9 @@ jobs:
       - name: List reports
         id: result
         run: |
-          shopt -s globstar extglob
+          shopt -s globstar extglob nullglob
           REPORTS="["
-          for file in (app|core|ext|library)/*/allure-report; do
+          for file in +(app|core|ext|library)/*/allure-report; do
             REPORTS="$REPORTS{\"report\":\"${file}\",\"package\":\"$(basename $(dirname $file))\"},"
           done
           REPORTS="${REPORTS%,}]"
