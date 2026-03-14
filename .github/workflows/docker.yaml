@@ -61,7 +61,7 @@ jobs:
           echo "No tags matched, exiting job."
           exit 0
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -114,6 +114,9 @@ jobs:
 
           echo "" >> /tmp/vuln-summary.md
           echo "Please review and address these vulnerabilities before merging." >> /tmp/vuln-summary.md
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            cat /tmp/vuln-summary.md >> $GITHUB_STEP_SUMMARY
+          fi
 
       - uses: marocchino/sticky-pull-request-comment@v2
         name: Post vulnerability summary comment
