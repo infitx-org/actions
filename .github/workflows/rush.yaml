@@ -184,6 +184,7 @@ jobs:
       - uses: marocchino/sticky-pull-request-comment@v2
         if: ${{ steps.deploy.outputs.latest_result_url }}
         with:
+          header: "${{ matrix.package }} report published"
           message: 📊 ${{ matrix.package }} report published at ${{ steps.deploy.outputs.latest_result_url }}
   coverage:
     runs-on: ubuntu-latest
