@@ -17,7 +17,7 @@ on:
       reports-repository:
         required: false
         type: string
-        default: ${{ github.event.repository.owner }}/${{ github.event.repository.name }}-ci
+        default: ${{ github.repository }}-ci
     secrets:
       CHROMATIC_PROJECT_TOKEN:
         required: false
@@ -160,6 +160,7 @@ jobs:
     needs:
       - unit-tests
     if: needs.unit-tests.outputs.reports != '[]'
+    # if: needs.unit-tests.outputs.reports != '[]' && github.event_name != 'pull_request'
     strategy:
       matrix:
         include: ${{ fromJson(needs.unit-tests.outputs.reports) }}
