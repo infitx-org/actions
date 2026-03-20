@@ -21,7 +21,7 @@ on:
     secrets:
       CHROMATIC_PROJECT_TOKEN:
         required: false
-      UT_MASTER_KEY:
+      BLONG_MASTER_KEY:
         required: false
       REPORT_TOKEN:
         required: false
