@@ -258,7 +258,7 @@ jobs:
         run: kubectl apply -k test/integration/
       - run: node common/scripts/install-run-rush.js ci-integration --to git:origin/${{ github.event.pull_request.base.ref }}
         env:
-          UT_MASTER_KEY: ${{ secrets.UT_MASTER_KEY }}
+          BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
         name: Run integration checks
 
   audit:
