@@ -256,7 +256,7 @@ jobs:
             --k3s-arg "--disable=traefik,servicelb,metrics-server@server:*"
       - name: Deploy services
         run: kubectl apply -k test/integration/
-      - run: node common/scripts/install-run-rush.js ci-integration --to git:origin/${{ github.event.pull_request.base.ref }}
+      - run: node common/scripts/install-run-rush.js ci-integration --verbose --to git:origin/${{ github.event.pull_request.base.ref }}
         env:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
         name: Run integration checks
