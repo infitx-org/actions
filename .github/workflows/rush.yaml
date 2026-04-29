@@ -247,7 +247,9 @@ jobs:
           cluster-name: cluster
           k3d-version: v5.8.3
           args: >-
+            -p "8200:30002@agent:0:direct"
             -p "3306:30006@agent:0:direct"
+            -p "9000:30009@agent:0:direct"
             -p "8180:30080@agent:0:direct"
             -p "9092:30092@agent:0:direct"
             -p "27017:30017@agent:0:direct"
