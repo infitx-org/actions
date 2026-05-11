@@ -15,6 +15,8 @@ on:
         required: true
       TRIGGER_DOWNSTREAM:
         required: false
+      CHROMATIC_PROJECT_TOKEN:
+        required: false
 
 jobs:
   release:
@@ -157,3 +159,24 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ${{ matrix.path }}/${{steps.publish.outputs.pages}}
+
+  chromatic:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+      CHROMATIC_BRANCH: main
+      CHROMATIC_SHA: ${{ github.sha }}
+      CHROMATIC_SLUG: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - *node
+      - *cache
+      - name: Rush Install
+        run: node common/scripts/install-run-rush.js install
+      - name: Chromatic Storybook baseline
+        if: env.CHROMATIC_PROJECT_TOKEN != ''
+        run: node common/scripts/install-run-rush.js ci-chromatic
