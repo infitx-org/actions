@@ -155,6 +155,16 @@ jobs:
             core/*/allure-report
             ext/*/allure-report
             library/*/allure-report
+      - run: node common/scripts/install-run-rush.js ci-coverage
+        name: Generate Coverage Report
+        continue-on-error: true
+      - name: Upload unit coverage
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: unit-coverage
+          path: +(app|core|ext|library)/*/coverage/lcov.info
+          if-no-files-found: ignore
 
   publish-report:
     needs:
@@ -188,31 +198,41 @@ jobs:
           message: 📊 ${{ matrix.package }} report published at ${{ steps.deploy.outputs.latest_result_url }}
   coverage:
     runs-on: ubuntu-latest
-    needs: setup
+    needs: [setup, unit-tests, integration]
+    # Run even when integration was skipped (not configured) or unit-tests failed;
+    # only skip if setup itself failed or unit-tests was cancelled.
+    if: always() && needs.setup.result == 'success' && needs.unit-tests.result != 'cancelled'
+    permissions:
+      pull-requests: write
     steps:
       - uses: actions/checkout@v6
-      - *node
-      - *cache
-      - run: node common/scripts/install-run-rush.js ci-coverage
-        name: Generate Code Coverage Report
-      - id: check-report
+      - name: Download unit coverage
+        uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: unit-coverage
+      - name: Download integration coverage
+        uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: integration-coverage
+      - name: Merge lcov files
+        id: merge
         run: |
-          if [ -f ./coverage/report.json ]; then
+          shopt -s globstar extglob nullglob
+          files=(+(app|core|ext|library)/*/coverage/lcov.info)
+          if [[ ${#files[@]} -gt 0 ]]; then
             echo "exists=true" >> $GITHUB_OUTPUT
+            cat "${files[@]}" > merged-lcov.info
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
-      - uses: ArtiomTr/jest-coverage-report-action@v2
-        if: ${{ steps.check-report.outputs.exists == 'true' }}
-        id: coverage
+      - name: Report coverage
+        if: steps.merge.outputs.exists == 'true'
+        uses: romeovs/lcov-reporter-action@v0.4.0
         with:
-          coverage-file: ./coverage/report.json
-          base-coverage-file: ./coverage/report.json
-          output: report-markdown
-      - uses: marocchino/sticky-pull-request-comment@v2
-        if: ${{ steps.coverage.outputs.report }}
-        with:
-          message: ${{ steps.coverage.outputs.report }}
+          lcov-file: merged-lcov.info
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   chromatic:
     runs-on: ubuntu-latest
@@ -262,6 +282,14 @@ jobs:
         env:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
         name: Run integration checks
+      - name: Upload integration coverage
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: integration-coverage
+          path: |2
+            +(app|core|ext|library)/*/coverage/lcov.info
+          if-no-files-found: ignore
 
   audit:
     runs-on: ubuntu-latest
