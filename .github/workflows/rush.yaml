@@ -160,7 +160,11 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: unit-coverage
-          path: +(app|core|ext|library)/*/coverage/lcov.info
+          path: |
+            app/*/coverage/lcov.info
+            core/*/coverage/lcov.info
+            ext/*/coverage/lcov.info
+            library/*/coverage/lcov.info
           if-no-files-found: ignore
 
   publish-report:
