@@ -155,9 +155,6 @@ jobs:
             core/*/allure-report
             ext/*/allure-report
             library/*/allure-report
-      - run: node common/scripts/install-run-rush.js ci-coverage
-        name: Generate Coverage Report
-        continue-on-error: true
       - name: Upload unit coverage
         if: always()
         uses: actions/upload-artifact@v5
