@@ -175,11 +175,8 @@ jobs:
         run: |
           shopt -s globstar extglob nullglob
           REPORTS="["
-          for file in +(app|core|ext|library)/*/+(allure-report|coverage); do
+          for file in +(app|core|ext|library)/*/allure-report +(app|core|ext|library)/*/coverage*/lcov-report coverage*/lcov-report allure-report*; do
             REPORTS="$REPORTS{\"report\":\"${file}\",\"package\":\"$(basename $(dirname $file))\"},"
-          done
-          for file in +(allure-report|coverage); do
-            REPORTS="$REPORTS{\"report\":\"${file}\",\"package\":\"$(basename ${{ github.repository }})\"},"
           done
           REPORTS="${REPORTS%,}]"
           echo "reports=$REPORTS" >> $GITHUB_OUTPUT
@@ -190,15 +187,15 @@ jobs:
           name: reports
           path: |
             app/*/allure-report
-            app/*/coverage
+            app/*/coverage*/lcov-report
             core/*/allure-report
-            core/*/coverage
+            core/*/coverage*/lcov-report
             ext/*/allure-report
-            ext/*/coverage
+            ext/*/coverage*/lcov-report
             library/*/allure-report
-            library/*/coverage
-            coverage
-            allure-report
+            library/*/coverage*/lcov-report
+            coverage*/lcov-report
+            allure-report*
 
   publish-report:
     needs:
