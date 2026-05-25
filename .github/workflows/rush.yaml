@@ -181,7 +181,7 @@ jobs:
           echo "reports=$REPORTS" >> $GITHUB_OUTPUT
       - name: upload reports
         if: ${{ steps.result.outputs.reports != '[]' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: reports
           path: |
@@ -256,7 +256,7 @@ jobs:
         name: Audit Check for dependencies
       - name: Upload Audit Results
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: audit-results
           path: '**/audit/auditResults.json'
@@ -292,7 +292,7 @@ jobs:
         run: npx playwright install --with-deps
       - run: node common/scripts/install-run-rush.js ci-ui
         name: Run UI Tests
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: playwright-report
