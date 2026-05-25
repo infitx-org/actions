@@ -18,6 +18,10 @@ on:
         required: false
         type: string
         default: ${{ github.repository }}-ci
+      ci-test-jobs:
+        required: false
+        type: string
+        default: max
     secrets:
       CHROMATIC_PROJECT_TOKEN:
         required: false
@@ -124,7 +128,7 @@ jobs:
         if: needs.setup.outputs.integration == 'true'
         run: kubectl apply -k test/integration/
 
-      - run: node common/scripts/install-run-rush.js ci-test # --verbose --to git:origin/${{ github.event.pull_request.base.ref }}
+      - run: node common/scripts/install-run-rush.js ci-test --parallelism=${{ inputs.ci-test-jobs }} # --verbose --to git:origin/${{ github.event.pull_request.base.ref }}
         env:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
         name: Run Tests
