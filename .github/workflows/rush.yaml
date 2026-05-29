@@ -327,12 +327,8 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
-      - name: Install Playwright browsers
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-        run: npx --package=@playwright/test playwright install
-        working-directory: core/blong-browser
-      - name: Install Playwright system deps
-        run: npx --package=@playwright/test playwright install-deps
+      - name: Install Playwright browsers + system deps
+        run: npx playwright install --with-deps chromium
         working-directory: core/blong-browser
       - run: node common/scripts/install-run-rush.js ci-ui --verbose
         if: ${{ !cancelled() }}
