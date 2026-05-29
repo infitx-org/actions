@@ -324,6 +324,13 @@ jobs:
       - run: node common/scripts/install-run-rush.js ci-ui --verbose
         if: ${{ !cancelled() }}
         name: Run UI Tests
+      - name: Test Summary
+        if: ${{ !cancelled() }}
+        run: |
+          shopt -s nullglob
+          for summary in {app,core,ext,library}/*/allure-report/summary.md; do
+            cat "$summary" >> $GITHUB_STEP_SUMMARY
+          done
       - name: List reports
         id: result
         if: ${{ !cancelled() }}
@@ -352,10 +359,13 @@ jobs:
           path: |
             app/*/test/**/*.play.ts-snapshots/
             app/*/.playwright/results/
+            app/*/allure-report/traces/
             core/*/test/**/*.play.ts-snapshots/
             core/*/.playwright/results/
+            core/*/allure-report/traces/
             ext/*/test/**/*.play.ts-snapshots/
             ext/*/.playwright/results/
+            ext/*/allure-report/traces/
           retention-days: 30
 
   changes:
