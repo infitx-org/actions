@@ -237,7 +237,7 @@ jobs:
   publish-report:
     needs:
       - tests
-    if: needs.tests.outputs.reports != '[]'
+    if: ${{ !cancelled() && needs.tests.outputs.reports != '[]' }}
     strategy:
       matrix:
         include: ${{ fromJson(needs.tests.outputs.reports) }}
