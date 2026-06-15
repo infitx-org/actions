@@ -148,6 +148,7 @@ jobs:
       - run: node common/scripts/install-run-rush.js ci-test --parallelism=${{ inputs.ci-test-jobs }} --verbose # --to git:origin/${{ github.event.pull_request.base.ref }}
         env:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
+          PLAYWRIGHT_SKIP_INSTALL: '1'
         name: Run Tests
         if: ${{ !cancelled() }}
       - run: node common/scripts/install-run-rush.js ci-coverage # --verbose --to git:origin/${{ github.event.pull_request.base.ref }}
