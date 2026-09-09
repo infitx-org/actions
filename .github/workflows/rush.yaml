@@ -152,12 +152,14 @@ jobs:
         if: needs.setup.outputs.integration == 'true'
         run: kubectl apply -k test/integration/
 
-      - run: node common/scripts/install-run-rush.js ci-test --parallelism=${{ inputs.ci-test-jobs }} --verbose # --to git:origin/${{ github.event.pull_request.base.ref }}
+      - name: Run Tests
+        id: test
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: node common/scripts/install-run-rush.js ci-test --parallelism=${{ inputs.ci-test-jobs }} --verbose # --to git:origin/${{ github.event.pull_request.base.ref }}
         env:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
           PLAYWRIGHT_SKIP_INSTALL: '1'
-        name: Run Tests
-        if: ${{ !cancelled() }}
       - name: Collect CI failure diagnostics (k8s + MySQL)
         if: ${{ failure() && needs.setup.outputs.ci-diagnostics == 'true' }}
         run: bash test/integration/ci-diagnostics.sh
@@ -185,8 +187,11 @@ jobs:
           set -euo pipefail
           shopt -s nullglob globstar
           mkdir -p report-data
-          # Per-package Playwright/Allure summaries, one <pkg>.md each.
-          for summary in {app,core,ext,library}/*/allure-report/summary.md; do
+          # Per-package summaries, one <pkg>.md each: Playwright/Allure suites
+          # write allure-report/summary.md; vitest suites (e.g. blong-browser)
+          # drop a vitest-report/summary.md in their package root.
+          for summary in {app,core,ext,library}/*/allure-report/summary.md \
+                         {app,core,ext,library}/*/vitest-report/summary.md; do
             pkg="$(basename "$(dirname "$(dirname "$summary")")")"
             cp "$summary" "report-data/${pkg}.md"
           done
@@ -247,6 +252,9 @@ jobs:
             library/*/coverage*/lcov-report
             coverage*/lcov-report
             allure-report*
+      - name: Fail job when tests failed
+        if: ${{ steps.test.outcome == 'failure' }}
+        run: exit 1
 
   publish-report:
     needs:
@@ -377,13 +385,13 @@ jobs:
     if: ${{ always() && !cancelled() }}
     steps:
       - name: Download report data
-        if: ${{ needs.tests.result == 'success' }}
+        if: ${{ !cancelled() }}
         uses: actions/download-artifact@v8
         with:
           name: report-data
         continue-on-error: true
       - name: Download report URLs
-        if: ${{ needs.publish-report.result != 'skipped' }}
+        if: ${{ !cancelled() }}
         uses: actions/download-artifact@v8
         with:
           name: report-urls
@@ -473,7 +481,12 @@ jobs:
           console.log(lines.join('\n'));
           RENDER_EOF
           node "$RUNNER_TEMP/render-report.mjs" > "$RUNNER_TEMP/ci-report.md"
-          cat "$RUNNER_TEMP/ci-report.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ -s "$RUNNER_TEMP/ci-report.md" ]; then
+            echo "nonempty=true" >> "$GITHUB_OUTPUT"
+            cat "$RUNNER_TEMP/ci-report.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "nonempty=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "file=$RUNNER_TEMP/ci-report.md" >> "$GITHUB_OUTPUT"
       - name: Clean up superseded report comments
         if: ${{ github.event_name == 'pull_request' && needs.publish-report.result != 'skipped' }}
@@ -491,7 +504,7 @@ jobs:
               }
             }
       - name: Post consolidated report comment
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' && steps.render.outputs.nonempty == 'true' }}
         uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: ci-report
