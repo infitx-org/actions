@@ -220,12 +220,86 @@ jobs:
           done
           REPORTS="${REPORTS%,}]"
           echo "reports=$REPORTS" >> $GITHUB_OUTPUT
-      - name: Upload report data
+      - name: Render CI summary
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/render-ci.mjs" <<'RENDER_EOF'
+          import {existsSync, readdirSync, readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const dataDir = 'report-data';
+          const rows = [];
+          if (existsSync(dataDir)) {
+            for (const f of readdirSync(dataDir).filter((x) => x.endsWith('.md'))) {
+              const pkg = f.replace(/\.md$/, '');
+              const head = readFileSync(join(dataDir, f), 'utf8').split('\n').find((l) => l.startsWith('### ')) ?? '';
+              const body = head.includes('\u2014') ? head.slice(head.indexOf('\u2014') + 1) : '';
+              if (!body) continue;
+              const num = (re) => { const m = body.match(re); return m ? Number(m[1]) : 0; };
+              rows.push({pkg, passed: num(/(\d+) passed/), failed: num(/(\d+) failed/), flaky: num(/(\d+) flaky/), total: num(/\((\d+) total\)/)});
+            }
+            rows.sort((a, b) => (b.failed + b.flaky) - (a.failed + a.flaky) || a.pkg.localeCompare(b.pkg));
+          }
+          const sum = (k) => rows.reduce((a, r) => a + r[k], 0);
+          const lines = [];
+          if (rows.length > 0) {
+            lines.push('## CI Summary');
+            lines.push('');
+            const extra = sum('flaky') > 0 ? `, ${sum('flaky')} flaky` : '';
+            lines.push(`**${rows.length} package(s) · ${sum('passed')} passed, ${sum('failed')} failed${extra} (${sum('total')} total)** — build #${process.env.GITHUB_RUN_NUMBER}`);
+            lines.push('');
+            lines.push('| Package | Result | Passed | Failed | Flaky | Total |');
+            lines.push('| --- | --- | ---: | ---: | ---: | ---: |');
+            for (const r of rows) {
+              const icon = r.failed > 0 ? '\u274c' : r.flaky > 0 ? '\u26a0\ufe0f' : '\u2705';
+              lines.push(`| ${r.pkg} | ${icon} | ${r.passed} | ${r.failed} | ${r.flaky} | ${r.total} |`);
+            }
+            lines.push('');
+          }
+          const cov = new Map();
+          const lcovFile = join(dataDir, 'coverage.lcov');
+          if (existsSync(lcovFile)) {
+            let cur = null;
+            for (const line of readFileSync(lcovFile, 'utf8').split('\n')) {
+              if (line.startsWith('SF:')) {
+                const p = line.slice(3).split('/');
+                cur = (p[0] === 'core' || p[0] === 'ext' || p[0] === 'app' || p[0] === 'library') ? p[1] : p[0];
+                if (!cov.has(cur)) cov.set(cur, {found: 0, hit: 0});
+              } else if (line.startsWith('LF:')) {
+                cov.get(cur).found += Number(line.slice(3));
+              } else if (line.startsWith('LH:')) {
+                cov.get(cur).hit += Number(line.slice(3));
+              }
+            }
+          }
+          const crows = [...cov.entries()]
+            .map(([p, v]) => [p, v.hit, v.found, v.found > 0 ? Math.round((v.hit / v.found) * 100) : 0])
+            .filter(([, , found]) => found > 0)
+            .sort((a, b) => b[3] - a[3]);
+          if (crows.length > 0) {
+            lines.push('### Coverage');
+            lines.push('');
+            lines.push('| Package | Lines hit / total | Coverage |');
+            lines.push('| --- | ---: | ---: |');
+            for (const [p, hit, found, pct] of crows) {
+              lines.push(`| ${p} | ${hit} / ${found} | ${pct}% |`);
+            }
+            lines.push('');
+          }
+          const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          if (lines.length === 0) lines.push('## CI Summary', '');
+          lines.push(`_See the [full run](${runUrl}) for job logs._`);
+          console.log(lines.join('\n'));
+          RENDER_EOF
+          node "$RUNNER_TEMP/render-ci.mjs" > ci-report.md
+          cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload CI summary
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: report-data
-          path: report-data/
+          name: ci-report
+          path: ci-report.md
           if-no-files-found: ignore
       - name: upload reports
         if: ${{ !cancelled() && steps.result.outputs.reports != '[]' }}
@@ -369,14 +443,13 @@ jobs:
           url="${base}/${TOOL}/${wf}/${RUN_NUM}/"
           echo "deployed=true" >> "$GITHUB_OUTPUT"
           echo "url=${url}" >> "$GITHUB_OUTPUT"
-          mkdir -p "${GITHUB_WORKSPACE}/report-urls"
-          printf '%s' "$url" > "${GITHUB_WORKSPACE}/report-urls/${TOOL}.txt"
+          printf '%s' "$url" > "${GITHUB_WORKSPACE}/${TOOL}.url.txt"
       - name: Upload report URL
         if: ${{ steps.deploy.outputs.deployed == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: report-urls
-          path: report-urls/
+          path: ${{ matrix.package }}.url.txt
           if-no-files-found: ignore
 
   report:
@@ -384,11 +457,11 @@ jobs:
     needs: [tests, publish-report]
     if: ${{ always() && !cancelled() }}
     steps:
-      - name: Download report data
+      - name: Download CI summary
         if: ${{ !cancelled() }}
         uses: actions/download-artifact@v8
         with:
-          name: report-data
+          name: ci-report
         continue-on-error: true
       - name: Download report URLs
         if: ${{ !cancelled() }}
@@ -396,98 +469,35 @@ jobs:
         with:
           name: report-urls
         continue-on-error: true
-      - name: Render consolidated report
-        id: render
+      - name: Assemble comment
+        id: assemble
         shell: bash
         run: |
           set -euo pipefail
-          cat > "$RUNNER_TEMP/render-report.mjs" <<'RENDER_EOF'
-          import {existsSync, readdirSync, readFileSync} from 'node:fs';
-          import {join} from 'node:path';
-          const dataDir = 'report-data';
-          const urlsDir = 'report-urls';
-          const urls = new Map();
-          if (existsSync(urlsDir)) {
-            for (const f of readdirSync(urlsDir)) {
-              if (f.endsWith('.txt')) {
-                urls.set(f.replace(/\.txt$/, ''), readFileSync(join(urlsDir, f), 'utf8').trim());
-              }
-            }
-          }
-          const rows = [];
-          if (existsSync(dataDir)) {
-            for (const f of readdirSync(dataDir).filter((x) => x.endsWith('.md'))) {
-              const pkg = f.replace(/\.md$/, '');
-              const head = readFileSync(join(dataDir, f), 'utf8').split('\n').find((l) => l.startsWith('### ')) ?? '';
-              const body = head.includes('\u2014') ? head.slice(head.indexOf('\u2014') + 1) : '';
-              const num = (re) => { const m = body.match(re); return m ? Number(m[1]) : 0; };
-              const passed = num(/(\d+) passed/);
-              const failed = num(/(\d+) failed/);
-              const flaky = num(/(\d+) flaky/);
-              const total = num(/\((\d+) total\)/);
-              if (body) rows.push({pkg, passed, failed, flaky, total});
-            }
-            rows.sort((a, b) => (b.failed + b.flaky) - (a.failed + a.flaky) || a.pkg.localeCompare(b.pkg));
-          }
-          const sum = (k) => rows.reduce((a, r) => a + r[k], 0);
-          const lines = [];
-          if (rows.length > 0) {
-            lines.push('## CI Summary');
-            lines.push('');
-            const extra = sum('flaky') > 0 ? `, ${sum('flaky')} flaky` : '';
-            lines.push(`**${rows.length} package(s) · ${sum('passed')} passed, ${sum('failed')} failed${extra} (${sum('total')} total)** — build #${process.env.GITHUB_RUN_NUMBER}`);
-            lines.push('');
-            lines.push('| Package | Result | Passed | Failed | Flaky | Total | Report |');
-            lines.push('| --- | --- | ---: | ---: | ---: | ---: | --- |');
-            for (const r of rows) {
-              const icon = r.failed > 0 ? '\u274c' : r.flaky > 0 ? '\u26a0\ufe0f' : '\u2705';
-              const link = urls.get(r.pkg) ? `[report](${urls.get(r.pkg)})` : '\u2014';
-              lines.push(`| ${r.pkg} | ${icon} | ${r.passed} | ${r.failed} | ${r.flaky} | ${r.total} | ${link} |`);
-            }
-            lines.push('');
-          }
-          const cov = new Map();
-          if (existsSync(join(dataDir, 'coverage.lcov'))) {
-            let cur = null;
-            for (const line of readFileSync(join(dataDir, 'coverage.lcov'), 'utf8').split('\n')) {
-              if (line.startsWith('SF:')) {
-                const p = line.slice(3).split('/');
-                cur = (p[0] === 'core' || p[0] === 'ext' || p[0] === 'app' || p[0] === 'library') ? p[1] : p[0];
-                if (!cov.has(cur)) cov.set(cur, {found: 0, hit: 0});
-              } else if (line.startsWith('LF:')) {
-                cov.get(cur).found += Number(line.slice(3));
-              } else if (line.startsWith('LH:')) {
-                cov.get(cur).hit += Number(line.slice(3));
-              }
-            }
-          }
-          if (cov.size > 0) {
-            const crows = [...cov.entries()]
-              .map(([p, v]) => [p, v.hit, v.found, v.found > 0 ? Math.round((v.hit / v.found) * 100) : 0])
-              .sort((a, b) => b[3] - a[3]);
-            lines.push('### Coverage');
-            lines.push('');
-            lines.push('| Package | Lines hit / total | Coverage |');
-            lines.push('| --- | ---: | ---: |');
-            for (const [p, hit, found, pct] of crows) {
-              lines.push(`| ${p} | ${hit} / ${found} | ${pct}% |`);
-            }
-            lines.push('');
-          }
-          if (rows.length > 0 || cov.size > 0) {
-            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-            lines.push(`_See the [full run](${runUrl}) for job logs._`);
-          }
-          console.log(lines.join('\n'));
-          RENDER_EOF
-          node "$RUNNER_TEMP/render-report.mjs" > "$RUNNER_TEMP/ci-report.md"
-          if [ -s "$RUNNER_TEMP/ci-report.md" ]; then
+          comment="$RUNNER_TEMP/ci-comment.md"
+          : > "$comment"
+          if [ -f ci-report.md ]; then
+            cat ci-report.md >> "$comment"
+          fi
+          shopt -s nullglob
+          urls=()
+          for f in ./*.url.txt; do
+            urls+=("$f")
+          done
+          if [ "${#urls[@]}" -gt 0 ]; then
+            printf '\n### Published reports\n\n| Package | Report |\n| --- | --- |\n' >> "$comment"
+            for f in "${urls[@]}"; do
+              pkg="${f##*/}"
+              pkg="${pkg%.url.txt}"
+              printf '| %s | %s |\n' "$pkg" "$(cat "$f")" >> "$comment"
+            done
+          fi
+          if [ -s "$comment" ]; then
             echo "nonempty=true" >> "$GITHUB_OUTPUT"
-            cat "$RUNNER_TEMP/ci-report.md" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "nonempty=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "file=$RUNNER_TEMP/ci-report.md" >> "$GITHUB_OUTPUT"
+          echo "file=$comment" >> "$GITHUB_OUTPUT"
       - name: Clean up superseded report comments
         if: ${{ github.event_name == 'pull_request' && needs.publish-report.result != 'skipped' }}
         uses: actions/github-script@v9
@@ -504,11 +514,11 @@ jobs:
               }
             }
       - name: Post consolidated report comment
-        if: ${{ github.event_name == 'pull_request' && steps.render.outputs.nonempty == 'true' }}
+        if: ${{ github.event_name == 'pull_request' && steps.assemble.outputs.nonempty == 'true' }}
         uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: ci-report
-          path: ${{ steps.render.outputs.file }}
+          path: ${{ steps.assemble.outputs.file }}
           ignore_empty: true
 
   chromatic:
