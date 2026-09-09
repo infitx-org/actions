@@ -222,84 +222,22 @@ jobs:
           echo "reports=$REPORTS" >> $GITHUB_OUTPUT
       - name: Render CI summary
         if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/render-ci.mjs" <<'RENDER_EOF'
-          import {existsSync, readdirSync, readFileSync} from 'node:fs';
-          import {join} from 'node:path';
-          const dataDir = 'report-data';
-          const rows = [];
-          if (existsSync(dataDir)) {
-            for (const f of readdirSync(dataDir).filter((x) => x.endsWith('.md'))) {
-              const pkg = f.replace(/\.md$/, '');
-              const head = readFileSync(join(dataDir, f), 'utf8').split('\n').find((l) => l.startsWith('### ')) ?? '';
-              const body = head.includes('\u2014') ? head.slice(head.indexOf('\u2014') + 1) : '';
-              if (!body) continue;
-              const num = (re) => { const m = body.match(re); return m ? Number(m[1]) : 0; };
-              rows.push({pkg, passed: num(/(\d+) passed/), failed: num(/(\d+) failed/), flaky: num(/(\d+) flaky/), total: num(/\((\d+) total\)/)});
-            }
-            rows.sort((a, b) => (b.failed + b.flaky) - (a.failed + a.flaky) || a.pkg.localeCompare(b.pkg));
-          }
-          const sum = (k) => rows.reduce((a, r) => a + r[k], 0);
-          const lines = [];
-          if (rows.length > 0) {
-            lines.push('## CI Summary');
-            lines.push('');
-            const extra = sum('flaky') > 0 ? `, ${sum('flaky')} flaky` : '';
-            lines.push(`**${rows.length} package(s) · ${sum('passed')} passed, ${sum('failed')} failed${extra} (${sum('total')} total)** — build #${process.env.GITHUB_RUN_NUMBER}`);
-            lines.push('');
-            lines.push('| Package | Result | Passed | Failed | Flaky | Total |');
-            lines.push('| --- | --- | ---: | ---: | ---: | ---: |');
-            for (const r of rows) {
-              const icon = r.failed > 0 ? '\u274c' : r.flaky > 0 ? '\u26a0\ufe0f' : '\u2705';
-              lines.push(`| ${r.pkg} | ${icon} | ${r.passed} | ${r.failed} | ${r.flaky} | ${r.total} |`);
-            }
-            lines.push('');
-          }
-          const cov = new Map();
-          const lcovFile = join(dataDir, 'coverage.lcov');
-          if (existsSync(lcovFile)) {
-            let cur = null;
-            for (const line of readFileSync(lcovFile, 'utf8').split('\n')) {
-              if (line.startsWith('SF:')) {
-                const p = line.slice(3).split('/');
-                cur = (p[0] === 'core' || p[0] === 'ext' || p[0] === 'app' || p[0] === 'library') ? p[1] : p[0];
-                if (!cov.has(cur)) cov.set(cur, {found: 0, hit: 0});
-              } else if (line.startsWith('LF:')) {
-                cov.get(cur).found += Number(line.slice(3));
-              } else if (line.startsWith('LH:')) {
-                cov.get(cur).hit += Number(line.slice(3));
-              }
-            }
-          }
-          const crows = [...cov.entries()]
-            .map(([p, v]) => [p, v.hit, v.found, v.found > 0 ? Math.round((v.hit / v.found) * 100) : 0])
-            .filter(([, , found]) => found > 0)
-            .sort((a, b) => b[3] - a[3]);
-          if (crows.length > 0) {
-            lines.push('### Coverage');
-            lines.push('');
-            lines.push('| Package | Lines hit / total | Coverage |');
-            lines.push('| --- | ---: | ---: |');
-            for (const [p, hit, found, pct] of crows) {
-              lines.push(`| ${p} | ${hit} / ${found} | ${pct}% |`);
-            }
-            lines.push('');
-          }
-          const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-          if (lines.length === 0) lines.push('## CI Summary', '');
-          lines.push(`_See the [full run](${runUrl}) for job logs._`);
-          console.log(lines.join('\n'));
-          RENDER_EOF
-          node "$RUNNER_TEMP/render-ci.mjs" > ci-report.md
-          cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
+        uses: infitx-org/actions/.github/actions/render-ci@main
+        with:
+          base-ref: ${{ github.base_ref }}
       - name: Upload CI summary
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: ci-report
           path: ci-report.md
+          if-no-files-found: ignore
+      - name: Upload metrics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: metrics
+          path: metrics.json
           if-no-files-found: ignore
       - name: upload reports
         if: ${{ !cancelled() && steps.result.outputs.reports != '[]' }}
@@ -340,110 +278,23 @@ jobs:
       max-parallel: 1
     runs-on: ubuntu-latest
     steps:
+      - *node
       - name: Download Report
         uses: actions/download-artifact@v8
         with:
           name: reports
       - name: Deploy Reports to GitHub Pages
         id: deploy
-        shell: bash
-        env:
-          REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
-          EXT_REPO: ${{ inputs.reports-repository }}
-          TOOL: ${{ matrix.package }}
-          RUN_NUM: ${{ github.run_number }}
-          RUN_ID: ${{ github.run_id }}
-          WORKFLOW: ${{ github.workflow }}
-          REPORT_SRC: ${{ matrix.report }}
-          KEEP_REPORTS: '15'
-        run: |
-          set -euo pipefail
-          if [ "$EXT_REPO" = "$GITHUB_REPOSITORY" ]; then
-            TOKEN="$GITHUB_TOKEN"
-          else
-            TOKEN="${REPORT_TOKEN:-}"
-          fi
-          if [ -z "$TOKEN" ]; then
-            echo "::warning::No token available to publish to $EXT_REPO (set REPORT_TOKEN for an external reports repo) — skipping deploy"
-            echo "deployed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          owner="${EXT_REPO%%/*}"
-          extname="${EXT_REPO##*/}"
-          pages_branch="gh-pages"
-          auth_url="https://x-access-token:${TOKEN}@github.com/${EXT_REPO}.git"
-          work="$RUNNER_TEMP/publish-${TOOL}"
-          rm -rf "$work"
-          if git ls-remote --heads "$auth_url" "$pages_branch" >/dev/null 2>&1; then
-            git clone -q --depth 1 --branch "$pages_branch" "$auth_url" "$work"
-          else
-            mkdir -p "$work"
-            git -C "$work" init -q
-            git -C "$work" checkout -q -b "$pages_branch"
-          fi
-          cd "$work"
-          git config user.email "actions@github.com"
-          git config user.name "github-actions"
-          git config pull.rebase false
-
-          # Stage this run's report under docs/<tool>/<workflow>/<run> — keeps
-          # the existing Pages layout (site root is /docs) so old URLs survive.
-          wf="${WORKFLOW// /-}"
-          run_dir="docs/${TOOL}/${wf}/${RUN_NUM}"
-          mkdir -p "$run_dir"
-          src="${GITHUB_WORKSPACE}/${REPORT_SRC}"
-          if [ -d "$src" ]; then
-            cp -a "$src/." "$run_dir/"
-          else
-            echo "::warning::report source not found: $REPORT_SRC"
-          fi
-          touch docs/.nojekyll
-
-          # Prune the oldest run directories for this tool beyond KEEP_REPORTS.
-          root="docs/${TOOL}/${wf}"
-          mapfile -t old_runs < <(find "$root" -mindepth 1 -maxdepth 1 -type d \
-            -regextype posix-extended -regex '.*/[0-9]+' 2>/dev/null | sort -V)
-          total="${#old_runs[@]}"
-          if [ "$total" -gt "$KEEP_REPORTS" ]; then
-            del=$((total - KEEP_REPORTS))
-            for ((i = 0; i < del; i++)); do rm -rf "${old_runs[$i]}"; done
-          fi
-
-          # Regenerate a simple directory index at each level.
-          gen_index() {
-            local d="$1" title="$2" s
-            local -a subs
-            mapfile -t subs < <(find "$d" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -V)
-            {
-              printf '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>%s</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><h1>%s</h1><ul>\n' "$title" "$title"
-              for s in "${subs[@]}"; do printf '<li><a href="%s/">%s</a></li>\n' "$s" "$s"; done
-              printf '</ul></body></html>\n'
-            } > "$d/index.html"
-          }
-          gen_index "docs/${TOOL}/${wf}" "${TOOL} — ${wf}"
-          gen_index "docs/${TOOL}" "${TOOL} reports"
-          gen_index "docs" "Reports"
-
-          # Commit + force push (keeps the gh-pages branch shallow).
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -q -m "report(${TOOL}): ${wf} run ${RUN_NUM}"
-            git push -q --force "$auth_url" "HEAD:${pages_branch}"
-          fi
-
-          # Resolve the base URL (custom-domain aware), fall back to github.io.
-          base=""
-          if command -v gh >/dev/null 2>&1; then
-            base="$(GH_TOKEN="$TOKEN" gh api "/repos/${EXT_REPO}/pages" --jq '.html_url' 2>/dev/null || true)"
-          fi
-          if [ -z "$base" ] || [[ "$base" != http* ]]; then
-            base="https://${owner}.github.io/${extname}"
-          fi
-          base="${base%/}"
-          url="${base}/${TOOL}/${wf}/${RUN_NUM}/"
-          echo "deployed=true" >> "$GITHUB_OUTPUT"
-          echo "url=${url}" >> "$GITHUB_OUTPUT"
-          printf '%s' "$url" > "${GITHUB_WORKSPACE}/${TOOL}.url.txt"
+        uses: infitx-org/actions/.github/actions/deploy-report@main
+        with:
+          report-token: ${{ secrets.REPORT_TOKEN }}
+          ext-repo: ${{ inputs.reports-repository }}
+          tool: ${{ matrix.package }}
+          run-num: ${{ github.run_number }}
+          run-id: ${{ github.run_id }}
+          workflow: ${{ github.workflow }}
+          report-src: ${{ matrix.report }}
+          keep-reports: '15'
       - name: Upload report URL
         if: ${{ steps.deploy.outputs.deployed == 'true' }}
         uses: actions/upload-artifact@v7

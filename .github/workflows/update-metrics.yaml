@@ -1,0 +1,172 @@
+name: Update metrics baseline
+
+# Reusable workflow: after a PR that ran the `rush.yaml` workflow is merged to
+# `main`, fold that PR run's `metrics.json` snapshot into the committed baseline
+# file (`.github/metrics.json`) so the next PR can report deltas against it.
+#
+# Call from a repository whose `main` is protected/kept up to date, e.g.:
+#
+#   jobs:
+#     update-metrics:
+#       uses: infitx-org/actions/.github/workflows/update-metrics.yaml@main
+#       with:
+#         metrics-file: .github/metrics.json   # optional
+#         artifact-name: metrics               # optional (matches rush.yaml)
+#         history-limit: 10                    # optional
+#       secrets:
+#         token: ${{ secrets.<PAT_OR_GITHUB_TOKEN_WITH_CONTENTS_WRITE> }}
+#
+# The `token` secret must have `contents: write` on the target repository so the
+# bot commit/push to `main` succeeds. If the caller workflow runs on the same
+# repo with `permissions: contents: write`, `secrets: inherit` also works.
+
+on:
+    workflow_call:
+        inputs:
+            metrics-file:
+                description: Path (repo-relative) of the committed metrics baseline file.
+                type: string
+                default: .github/metrics.json
+            artifact-name:
+                description: Name of the metrics artifact uploaded by the rush.yaml workflow.
+                type: string
+                default: metrics
+            history-limit:
+                description: How many merged-run history entries to keep.
+                type: number
+                default: 10
+        secrets:
+            token:
+                description: Token with contents:write on the target repository (GITHUB_TOKEN or PAT).
+                required: false
+
+permissions:
+    contents: write
+
+jobs:
+    update-metrics:
+        name: Fold merged PR metrics into baseline
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  token: ${{ secrets.token || github.token }}
+
+            # The push that triggered this call is a merge to main. Resolve the
+            # merged PR and its last successful rush run (pull_request event on
+            # the PR head) so we can pull the matching metrics artifact.
+            - name: Resolve merged PR and successful run
+              id: resolve
+              uses: actions/github-script@v9
+              with:
+                  github-token: ${{ secrets.token || github.token }}
+                  script: |
+                      const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          commit_sha: context.sha,
+                      });
+                      const pr = prs.find((p) => p && p.merged_at);
+                      if (!pr) {
+                          console.log('No merged PR associated with this push; skipping.');
+                          return;
+                      }
+                      const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          head_sha: pr.head.sha,
+                          status: 'success',
+                          per_page: 100,
+                      });
+                      const byDate = (a, b) => String(b.created_at).localeCompare(String(a.created_at));
+                      const prRuns = runs.filter((r) => r.event === 'pull_request').sort(byDate);
+                      const run = prRuns[0] || runs.sort(byDate)[0];
+                      if (!run) {
+                          console.log(`No successful run for head ${pr.head.sha}; skipping.`);
+                          return;
+                      }
+                      core.setOutput('pr', String(pr.number));
+                      core.setOutput('prHead', pr.head.sha);
+                      core.setOutput('runId', String(run.id));
+                      core.setOutput('runName', run.name || '');
+
+            - name: Download metrics artifact
+              if: steps.resolve.outputs.pr != ''
+              uses: actions/download-artifact@v8
+              with:
+                  name: ${{ inputs.artifact-name }}
+                  path: pr-metrics
+                  run-id: ${{ steps.resolve.outputs.runId }}
+                  github-token: ${{ secrets.token || github.token }}
+
+            - name: Merge snapshot into committed baseline
+              id: merge
+              if: steps.resolve.outputs.pr != ''
+              env:
+                  HISTORY_LIMIT: ${{ inputs.history-limit }}
+              uses: actions/github-script@v9
+              with:
+                  github-token: ${{ secrets.token || github.token }}
+                  script: |
+                      const fs = require('node:fs');
+                      const path = require('node:path');
+                      const root = process.env.GITHUB_WORKSPACE;
+                      const metricsFile = path.join(root, '${{ inputs.metrics-file }}');
+                      const artifactFile = path.join(
+                          root,
+                          'pr-metrics',
+                          '${{ inputs.artifact-name }}',
+                          'metrics.json',
+                      );
+                      if (!fs.existsSync(artifactFile)) {
+                          console.log('metrics.json not found in artifact; skipping.');
+                          return;
+                      }
+                      const art = JSON.parse(fs.readFileSync(artifactFile, 'utf8'));
+                      let prev = null;
+                      if (fs.existsSync(metricsFile)) {
+                          try {
+                              prev = JSON.parse(fs.readFileSync(metricsFile, 'utf8'));
+                          } catch {
+                              prev = null;
+                          }
+                      }
+                      const now = new Date().toISOString();
+                      const limit = Number(process.env.HISTORY_LIMIT || 10);
+                      const record = {
+                          commit: context.sha,
+                          run: art.run || Number(process.env.GITHUB_RUN_NUMBER || 0),
+                          date: now,
+                          tests: art.tests || null,
+                          coverage: art.coverage || null,
+                      };
+                      const history = [record, ...(prev && Array.isArray(prev.history) ? prev.history : [])]
+                          .filter((h) => h && h.tests)
+                          .slice(0, limit);
+                      const next = {
+                          schema: 1,
+                          commit: context.sha,
+                          run: record.run,
+                          updatedAt: now,
+                          tests: art.tests || {},
+                          coverage: art.coverage || { lines: { hit: 0, found: 0 } },
+                          packages: art.packages || {},
+                          history,
+                      };
+                      fs.mkdirSync(path.dirname(metricsFile), { recursive: true });
+                      fs.writeFileSync(metricsFile, JSON.stringify(next, null, 2) + '\n');
+                      core.setOutput('changed', 'true');
+
+            - name: Commit and push baseline
+              if: steps.merge.outputs.changed == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.token || github.token }}
+              run: |
+                  cd "$GITHUB_WORKSPACE"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git add '${{ inputs.metrics-file }}'
+                  git commit -m "chore(metrics): update baseline from PR #${{ steps.resolve.outputs.pr }} [skip ci]" || { echo "nothing to commit"; exit 0; }
+                  git push origin "HEAD:${{ github.ref_name }}"
+                  echo "Baseline updated and pushed to ${{ github.ref_name }}"

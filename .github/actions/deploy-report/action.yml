@@ -1,0 +1,61 @@
+name: Deploy reports to GitHub Pages
+description: >-
+    Publishes one report directory (matrix item) to the <reports-repository>
+    gh-pages branch under docs/<tool>/<workflow>/<run-number>, regenerates the
+    per-level index.html files, prunes old numeric run dirs beyond keep-reports,
+    and force-pushes. Emits the published URL as an output and writes
+    <tool>.url.txt in the workspace for downstream upload.
+inputs:
+    report-token:
+        description: >-
+            Token with write access to the external reports repository. Ignored
+            when ext-repo equals the current repository (GITHUB_TOKEN is used).
+        required: false
+        default: ''
+    ext-repo:
+        description: owner/repo hosting the gh-pages branch (defaults to the current repository).
+        required: false
+        default: ''
+    tool:
+        description: Report/tool name used in the docs/<tool>/... path (matrix.package).
+        required: true
+    run-num:
+        description: Current workflow run number (github.run_number).
+        required: true
+    run-id:
+        description: Current workflow run id (github.run_id) — informational only.
+        required: false
+        default: ''
+    workflow:
+        description: Workflow name used in the docs/<tool>/<workflow>/... path.
+        required: true
+    report-src:
+        description: Workspace-relative path of the report directory to publish (matrix.report).
+        required: true
+    keep-reports:
+        description: Number of most recent numeric run dirs to keep per tool/workflow.
+        required: false
+        default: '15'
+outputs:
+    deployed:
+        description: 'true when the report was pushed (or false when no token was available).'
+        value: ${{ steps.deploy.outputs.deployed }}
+    url:
+        description: Published report URL (empty when not deployed).
+        value: ${{ steps.deploy.outputs.url }}
+runs:
+    using: composite
+    steps:
+        - id: deploy
+          name: Deploy report to GitHub Pages
+          shell: bash
+          run: node "${{ github.action_path }}/index.mjs"
+          env:
+              INPUT_REPORT_TOKEN: ${{ inputs.report-token }}
+              INPUT_EXT_REPO: ${{ inputs.ext-repo }}
+              INPUT_TOOL: ${{ inputs.tool }}
+              INPUT_RUN_NUM: ${{ inputs.run-num }}
+              INPUT_RUN_ID: ${{ inputs.run-id }}
+              INPUT_WORKFLOW: ${{ inputs.workflow }}
+              INPUT_REPORT_SRC: ${{ inputs.report-src }}
+              INPUT_KEEP_REPORTS: ${{ inputs.keep-reports }}
