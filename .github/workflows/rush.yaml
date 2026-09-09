@@ -215,7 +215,7 @@ jobs:
         run: |
           shopt -s globstar extglob nullglob
           REPORTS="["
-          for file in +(app|core|ext|library)/*/allure-report +(app|core|ext|library)/*/coverage*/lcov-report coverage*/lcov-report allure-report*; do
+          for file in +(app|core|ext|library)/*/allure-report coverage*/lcov-report allure-report*; do
             REPORTS="$REPORTS{\"report\":\"${file}\",\"package\":\"$(basename $(dirname $file))\"},"
           done
           REPORTS="${REPORTS%,}]"
@@ -448,7 +448,7 @@ jobs:
         if: ${{ steps.deploy.outputs.deployed == 'true' }}
         uses: actions/upload-artifact@v7
         with:
-          name: report-urls
+          name: report-url-${{ matrix.package }}
           path: ${{ matrix.package }}.url.txt
           if-no-files-found: ignore
 
@@ -467,7 +467,8 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/download-artifact@v8
         with:
-          name: report-urls
+          pattern: report-url-*
+          merge-multiple: true
         continue-on-error: true
       - name: Assemble comment
         id: assemble
