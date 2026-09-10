@@ -9,7 +9,7 @@ on:
       history-files:
         required: false
         type: string
-        default: '+(app|core|ext|library)/*/.allure/history.jsonl'
+        default: '+(app|core|ext|library|realm|suite|demo|test|tools)/*/.allure/history.jsonl'
       history-gist-id:
         required: false
         type: string
@@ -58,6 +58,21 @@ jobs:
             core/**/node_modules
             core/*/dist
             core/*/.rush
+            realm/**/node_modules
+            realm/*/dist
+            realm/*/.rush
+            suite/**/node_modules
+            suite/*/dist
+            suite/*/.rush
+            demo/**/node_modules
+            demo/*/dist
+            demo/*/.rush
+            test/**/node_modules
+            test/*/dist
+            test/*/.rush
+            tools/**/node_modules
+            tools/*/dist
+            tools/*/.rush
             ext/**/node_modules
             ext/*/dist
             ext/*/.rush
@@ -190,8 +205,8 @@ jobs:
           # Per-package summaries, one <pkg>.md each: Playwright/Allure suites
           # write allure-report/summary.md; vitest suites (e.g. blong-browser)
           # drop a vitest-report/summary.md in their package root.
-          for summary in {app,core,ext,library}/*/allure-report/summary.md \
-                         {app,core,ext,library}/*/vitest-report/summary.md; do
+          for summary in {app,core,ext,library,realm,suite,demo,test,tools}/*/allure-report/summary.md \
+                         {app,core,ext,library,realm,suite,demo,test,tools}/*/vitest-report/summary.md; do
             pkg="$(basename "$(dirname "$(dirname "$summary")")")"
             cp "$summary" "report-data/${pkg}.md"
           done
@@ -215,7 +230,7 @@ jobs:
         run: |
           shopt -s globstar extglob nullglob
           REPORTS="["
-          for file in +(app|core|ext|library)/*/allure-report coverage*/lcov-report allure-report*; do
+          for file in +(app|core|ext|library|realm|suite|demo|test|tools)/*/allure-report coverage*/lcov-report allure-report*; do
             REPORTS="$REPORTS{\"report\":\"${file}\",\"package\":\"$(basename $(dirname $file))\"},"
           done
           REPORTS="${REPORTS%,}]"
@@ -255,6 +270,31 @@ jobs:
             core/*/test/**/*.play.ts-snapshots/
             core/*/.playwright/results/
             core/*/allure-report/traces/
+            realm/*/allure-report
+            realm/*/coverage*/lcov-report
+            realm/*/test/**/*.play.ts-snapshots/
+            realm/*/.playwright/results/
+            realm/*/allure-report/traces/
+            suite/*/allure-report
+            suite/*/coverage*/lcov-report
+            suite/*/test/**/*.play.ts-snapshots/
+            suite/*/.playwright/results/
+            suite/*/allure-report/traces/
+            demo/*/allure-report
+            demo/*/coverage*/lcov-report
+            demo/*/test/**/*.play.ts-snapshots/
+            demo/*/.playwright/results/
+            demo/*/allure-report/traces/
+            test/*/allure-report
+            test/*/coverage*/lcov-report
+            test/*/test/**/*.play.ts-snapshots/
+            test/*/.playwright/results/
+            test/*/allure-report/traces/
+            tools/*/allure-report
+            tools/*/coverage*/lcov-report
+            tools/*/test/**/*.play.ts-snapshots/
+            tools/*/.playwright/results/
+            tools/*/allure-report/traces/
             ext/*/allure-report
             ext/*/coverage*/lcov-report
             ext/*/test/**/*.play.ts-snapshots/

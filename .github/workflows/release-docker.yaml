@@ -119,6 +119,21 @@ jobs:
             core/**/node_modules
             core/*/dist
             core/*/.rush
+            realm/**/node_modules
+            realm/*/dist
+            realm/*/.rush
+            suite/**/node_modules
+            suite/*/dist
+            suite/*/.rush
+            demo/**/node_modules
+            demo/*/dist
+            demo/*/.rush
+            test/**/node_modules
+            test/*/dist
+            test/*/.rush
+            tools/**/node_modules
+            tools/*/dist
+            tools/*/.rush
             ext/**/node_modules
             ext/*/dist
             ext/*/.rush
