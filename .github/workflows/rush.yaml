@@ -176,10 +176,10 @@ jobs:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
           PLAYWRIGHT_SKIP_INSTALL: '1'
       - name: Collect CI failure diagnostics (k8s + MySQL)
-        if: ${{ failure() && needs.setup.outputs.ci-diagnostics == 'true' }}
+        if: ${{ steps.test.outcome == 'failure' && needs.setup.outputs.ci-diagnostics == 'true' }}
         run: bash test/integration/ci-diagnostics.sh
       - name: Upload CI failure diagnostics
-        if: ${{ failure() && needs.setup.outputs.ci-diagnostics == 'true' }}
+        if: ${{ steps.test.outcome == 'failure' && needs.setup.outputs.ci-diagnostics == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: ci-diagnostics
