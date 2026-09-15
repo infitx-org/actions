@@ -6,14 +6,6 @@ on:
         required: false
         type: string
         default: '24.x'
-      history-files:
-        required: false
-        type: string
-        default: '+(app|core|ext|library|realm|suite|demo|test|tools)/*/.allure/history.jsonl'
-      history-gist-id:
-        required: false
-        type: string
-        default: ''
       reports-repository:
         required: false
         type: string
@@ -22,14 +14,17 @@ on:
         required: false
         type: string
         default: max
+      ci-test-verbose:
+        description: Stream every project's output instead of only the failing ones.
+        required: false
+        type: boolean
+        default: false
     secrets:
       CHROMATIC_PROJECT_TOKEN:
         required: false
       BLONG_MASTER_KEY:
         required: false
       REPORT_TOKEN:
-        required: false
-      HISTORY_TOKEN:
         required: false
 jobs:
   setup:
@@ -127,26 +122,6 @@ jobs:
           if [ "${{ steps.pw-cache.outputs.cache-hit }}" != "true" ]; then
             "${{ needs.setup.outputs.playwright }}" install chromium
           fi
-      - name: Sync History
-        uses: gacts/run-and-post-run@v1
-        if: ${{ inputs.history-gist-id != '' }}
-        env:
-          GH_TOKEN: ${{ secrets.HISTORY_TOKEN }}
-        with:
-          run: |
-            files=$(gh gist view ${{ inputs.history-gist-id }} --files)
-            for file in $files; do
-              gh gist view ${{ inputs.history-gist-id }} --filename "${file//__//\}" > "$file"
-            done
-          post: |
-            if [ "${{ github.event_name }}" = "pull_request" ]; then
-              echo "Pull request detected, skipping history sync."
-              exit 0
-            fi
-            shopt -s globstar extglob nullglob
-            for file in ${{ inputs.history-files }}; do
-              gh gist edit ${{ inputs.history-gist-id }} --filename "${file//\//__}" "$file"
-            done
       - uses: AbsaOSS/k3d-action@v2
         if: needs.setup.outputs.integration == 'true'
         with:
@@ -171,7 +146,11 @@ jobs:
         id: test
         if: ${{ !cancelled() }}
         continue-on-error: true
-        run: node common/scripts/install-run-rush.js ci-test --parallelism=${{ inputs.ci-test-jobs }} --verbose # --to git:origin/${{ github.event.pull_request.base.ref }}
+        # Without --verbose Rush buffers each project and prints only the failing
+        # ones; the full per-package output is kept in .ci-report/ and uploaded as
+        # an artifact, and the aggregated report comes from `rush ci-report`.
+        # Pass ci-test-verbose: true to stream everything again.
+        run: node common/scripts/install-run-rush.js ci-test --parallelism=${{ inputs.ci-test-jobs }} ${{ inputs.ci-test-verbose && '--verbose' || '' }}
         env:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
           PLAYWRIGHT_SKIP_INSTALL: '1'
@@ -189,57 +168,62 @@ jobs:
         env:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
         name: Run coverage reports
-      - id: check-report
+      - name: Fetch metrics baseline
+        if: ${{ !cancelled() && github.base_ref != '' }}
+        continue-on-error: true
+        # The report's deltas, the metrics rebuild and the history rebuild are all
+        # anchored to the base branch, never to what this branch currently holds,
+        # so repeated runs of one pull request cannot accumulate data.
         run: |
-          if ls **/coverage/junit.xml 1> /dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-      - name: Assemble report data
-        if: ${{ !cancelled() }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob globstar
-          mkdir -p report-data
-          # Per-package summaries, one <pkg>.md each: Playwright/Allure suites
-          # write allure-report/summary.md; vitest suites (e.g. blong-browser)
-          # drop a vitest-report/summary.md in their package root.
-          for summary in {app,core,ext,library,realm,suite,demo,test,tools}/*/allure-report/summary.md \
-                         {app,core,ext,library,realm,suite,demo,test,tools}/*/vitest-report/summary.md; do
-            pkg="$(basename "$(dirname "$(dirname "$summary")")")"
-            cp "$summary" "report-data/${pkg}.md"
+          mkdir -p "$RUNNER_TEMP/baseline"
+          git fetch --quiet --depth=1 origin "${{ github.base_ref }}"
+          for pair in metrics.json:.github/metrics.json history.jsonl:.github/history.jsonl; do
+            target="${pair%%:*}"
+            source="${pair#*:}"
+            git show "FETCH_HEAD:${source}" > "$RUNNER_TEMP/baseline/${target}" 2>/dev/null || : > "$RUNNER_TEMP/baseline/${target}"
           done
-          # Root coverage lcov produced by ci-coverage (aggregated per package).
-          if [ -f coverage/lcov.info ]; then
-            cp coverage/lcov.info report-data/coverage.lcov
-          fi
-      - name: Publish test results (check run only)
-        if: ${{ steps.check-report.outputs.exists == 'true' }}
-        uses: EnricoMi/publish-unit-test-result-action@v2
+          echo "CI_BASE_METRICS=$RUNNER_TEMP/baseline/metrics.json" >> "$GITHUB_ENV"
+          echo "CI_BASE_HISTORY=$RUNNER_TEMP/baseline/history.jsonl" >> "$GITHUB_ENV"
+      - name: Build CI report
+        if: ${{ !cancelled() }}
+        # Repo-owned hook: aggregates every package's `.ci-report/`, renders
+        # ci-report.md (action summary + PR comment), writes the metrics snapshot,
+        # rebuilds .github/metrics.json + .github/history.jsonl from the base
+        # branch and builds the failures bundle. Repositories without a `ci-report`
+        # script skip this silently.
+        run: node common/scripts/install-run-rush.js ci-report
+        env:
+          BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
+      - name: Commit metrics and history to the pull request
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: infitx-org/actions/.github/actions/commit-metrics@main
         with:
-          files: |
-            **/coverage/junit.xml
-          check_run: true
-          comment_mode: off
-          job_summary: false
-          json_file: report-data/test-results.json
+          metrics-file: .github/metrics.json
+          history-file: .github/history.jsonl
+          token: ${{ github.token }}
       - name: List reports
         id: result
         if: ${{ !cancelled() }}
         run: |
-          shopt -s globstar extglob nullglob
+          set -euo pipefail
+          shopt -s nullglob globstar
           REPORTS="["
-          for file in +(app|core|ext|library|realm|suite|demo|test|tools)/*/allure-report coverage*/lcov-report allure-report*; do
-            REPORTS="$REPORTS{\"report\":\"${file}\",\"package\":\"$(basename $(dirname $file))\"},"
+          # Explicit category globs (rather than +(...) extglob, which depends on
+          # shopt running before the line is parsed).
+          for dir in app/*/.ci-report/publish core/*/.ci-report/publish ext/*/.ci-report/publish \
+                     library/*/.ci-report/publish realm/*/.ci-report/publish suite/*/.ci-report/publish \
+                     demo/*/.ci-report/publish test/*/.ci-report/publish tools/*/.ci-report/publish; do
+            pkg="$(basename "$(dirname "$(dirname "${dir}")")")"
+            REPORTS="$REPORTS{\"report\":\"${dir}\",\"package\":\"${pkg}\"},"
           done
+          if [ -d ci-failures/publish ]; then
+            REPORTS="$REPORTS{\"report\":\"ci-failures/publish\",\"package\":\"failures\"},"
+          fi
+          if [ -d coverage/lcov-report ]; then
+            REPORTS="$REPORTS{\"report\":\"coverage/lcov-report\",\"package\":\"coverage\"},"
+          fi
           REPORTS="${REPORTS%,}]"
           echo "reports=$REPORTS" >> $GITHUB_OUTPUT
-      - name: Render CI summary
-        if: ${{ !cancelled() }}
-        uses: infitx-org/actions/.github/actions/render-ci@main
-        with:
-          base-ref: ${{ github.base_ref }}
       - name: Upload CI summary
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -260,50 +244,42 @@ jobs:
         with:
           name: reports
           path: |
-            app/*/allure-report
+            app/*/.ci-report
             app/*/coverage*/lcov-report
             app/*/test/**/*.play.ts-snapshots/
             app/*/.playwright/results/
-            app/*/allure-report/traces/
-            core/*/allure-report
+            core/*/.ci-report
             core/*/coverage*/lcov-report
             core/*/test/**/*.play.ts-snapshots/
             core/*/.playwright/results/
-            core/*/allure-report/traces/
-            realm/*/allure-report
+            realm/*/.ci-report
             realm/*/coverage*/lcov-report
             realm/*/test/**/*.play.ts-snapshots/
             realm/*/.playwright/results/
-            realm/*/allure-report/traces/
-            suite/*/allure-report
+            suite/*/.ci-report
             suite/*/coverage*/lcov-report
             suite/*/test/**/*.play.ts-snapshots/
             suite/*/.playwright/results/
-            suite/*/allure-report/traces/
-            demo/*/allure-report
+            demo/*/.ci-report
             demo/*/coverage*/lcov-report
             demo/*/test/**/*.play.ts-snapshots/
             demo/*/.playwright/results/
-            demo/*/allure-report/traces/
-            test/*/allure-report
+            test/*/.ci-report
             test/*/coverage*/lcov-report
             test/*/test/**/*.play.ts-snapshots/
             test/*/.playwright/results/
-            test/*/allure-report/traces/
-            tools/*/allure-report
+            tools/*/.ci-report
             tools/*/coverage*/lcov-report
             tools/*/test/**/*.play.ts-snapshots/
             tools/*/.playwright/results/
-            tools/*/allure-report/traces/
-            ext/*/allure-report
+            ext/*/.ci-report
             ext/*/coverage*/lcov-report
             ext/*/test/**/*.play.ts-snapshots/
             ext/*/.playwright/results/
-            ext/*/allure-report/traces/
-            library/*/allure-report
+            library/*/.ci-report
             library/*/coverage*/lcov-report
             coverage*/lcov-report
-            allure-report*
+            ci-failures
       - name: Fail job when tests failed
         if: ${{ steps.test.outcome == 'failure' }}
         run: exit 1
@@ -331,10 +307,12 @@ jobs:
           ext-repo: ${{ inputs.reports-repository }}
           tool: ${{ matrix.package }}
           run-num: ${{ github.run_number }}
-          run-id: ${{ github.run_id }}
           workflow: ${{ github.workflow }}
           report-src: ${{ matrix.report }}
           keep-reports: '15'
+          # The failures bundle also answers on a stable URL, so an agent can be
+          # pointed at `<tool>/<workflow>/latest/failures.json`.
+          alias: ${{ matrix.package == 'failures' && 'latest' || '' }}
       - name: Upload report URL
         if: ${{ steps.deploy.outputs.deployed == 'true' }}
         uses: actions/upload-artifact@v7
@@ -361,6 +339,20 @@ jobs:
           pattern: report-url-*
           merge-multiple: true
         continue-on-error: true
+      - *node
+      - name: Drop the failures alias when the run is green
+        # publish-report only publishes a failures bundle for a red run, so on a
+        # green one the previous `latest/` has to be removed explicitly.
+        if: ${{ !cancelled() && !hashFiles('failures.url.txt') }}
+        uses: infitx-org/actions/.github/actions/deploy-report@main
+        continue-on-error: true
+        with:
+          report-token: ${{ secrets.REPORT_TOKEN }}
+          ext-repo: ${{ inputs.reports-repository }}
+          tool: failures
+          workflow: ${{ github.workflow }}
+          alias: latest
+          clean: 'true'
       - name: Assemble comment
         id: assemble
         shell: bash
@@ -370,6 +362,12 @@ jobs:
           : > "$comment"
           if [ -f ci-report.md ]; then
             cat ci-report.md >> "$comment"
+          fi
+          if [ -f failures.url.txt ]; then
+            base="$(cat failures.url.txt)"
+            latest="$(printf '%s' "$base" | sed 's/[0-9]*\/$/latest/')"
+            printf '\n🤖 **Failure report**: this run <%sfailures.json> · stable <%sfailures.json> · [Allure](%s)\n' \
+              "$base" "$latest" "$base" >> "$comment"
           fi
           shopt -s nullglob
           urls=()

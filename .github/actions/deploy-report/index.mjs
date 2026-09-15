@@ -25,6 +25,8 @@ const tool = (process.env.INPUT_TOOL || '').trim();
 const runNum = (process.env.INPUT_RUN_NUM || '').trim();
 const workflow = (process.env.INPUT_WORKFLOW || '').trim();
 const reportSrc = (process.env.INPUT_REPORT_SRC || '').trim();
+const alias = (process.env.INPUT_ALIAS || '').trim();
+const clean = (process.env.INPUT_CLEAN || 'false').trim() === 'true';
 const keep = Math.max(1, Number(process.env.INPUT_KEEP_REPORTS || '15') || 15);
 const reportToken = (process.env.INPUT_REPORT_TOKEN || '').trim();
 
@@ -35,8 +37,13 @@ function setOutput(name, value) {
     if (file) writeFileSync(file, `${name}=${value}\n`, {flag: 'a'});
 }
 
-if (!tool || !runNum || !workflow || !reportSrc) {
-    console.error(`deploy-report: missing required input (tool='${tool}' runNum='${runNum}' workflow='${workflow}' reportSrc='${reportSrc}')`);
+const missing = clean
+    ? !tool || !workflow || !alias
+    : !tool || !workflow || !runNum || !reportSrc;
+if (missing) {
+    console.error(
+        `deploy-report: missing required input (tool='${tool}' workflow='${workflow}' runNum='${runNum}' reportSrc='${reportSrc}' alias='${alias}' clean='${clean}')`,
+    );
     setOutput('deployed', 'false');
     process.exit(1);
 }
@@ -85,6 +92,28 @@ run(['config', 'pull.rebase', 'false'], {cwd: work});
 // --- Stage this run's report ---------------------------------------------------
 const wf = workflow.replace(/\s+/g, '-');
 const runDir = join('docs', tool, wf, runNum);
+
+// Clean mode: drop the alias (used when a run is green and the previous failure
+// report would otherwise keep answering on the stable URL).
+if (clean) {
+    const aliasDir = join('docs', tool, wf, alias);
+    if (!existsSync(join(work, aliasDir))) {
+        console.log(`Nothing to clean: ${aliasDir} does not exist`);
+        setOutput('deployed', 'false');
+        process.exit(0);
+    }
+    rmSync(join(work, aliasDir), {recursive: true, force: true});
+    genIndex(join(work, 'docs', tool, wf), `${tool} — ${wf}`, new Set([alias]));
+    run(['add', '-A'], {cwd: work});
+    if (!ok(['diff', '--cached', '--quiet'], {cwd: work})) {
+        run(['commit', '-q', '-m', `report(${tool}): drop ${alias}`], {cwd: work});
+        run(['push', '-q', '--force', authUrl, `HEAD:${pagesBranch}`], {cwd: work});
+        console.log(`Removed ${aliasDir} from ${extRepo}`);
+    }
+    setOutput('deployed', 'true');
+    process.exit(0);
+}
+
 mkdirSync(join(work, runDir), {recursive: true});
 const src = join(workspace, reportSrc);
 if (existsSync(src)) {
@@ -108,8 +137,16 @@ if (numericDirs.length > keep) {
     }
 }
 
+// --- Mirror the run into the alias directory (stable URL) ----------------------
+// After pruning, so the alias can never point at a removed run.
+if (alias) {
+    const aliasDir = join(root, alias);
+    rmSync(aliasDir, {recursive: true, force: true});
+    copyRecursive(join(work, runDir), aliasDir);
+}
+
 // --- Regenerate index.html at each level ---------------------------------------
-genIndex(join(work, 'docs', tool, wf), `${tool} — ${wf}`);
+genIndex(join(work, 'docs', tool, wf), `${tool} — ${wf}`, new Set(alias ? [alias] : []));
 genIndex(join(work, 'docs', tool), `${tool} reports`);
 genIndex(join(work, 'docs'), 'Reports');
 
@@ -150,9 +187,9 @@ function copyRecursive(src, dst) {
         copyFileSync(src, dst);
     }
 }
-function genIndex(dir, title) {
+function genIndex(dir, title, exclude = new Set()) {
     const subs = readdirSync(dir, {withFileTypes: true})
-        .filter((d) => d.isDirectory())
+        .filter((d) => d.isDirectory() && !exclude.has(d.name))
         .map((d) => d.name)
         .sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
     const rows = subs.map((s) => `<li><a href="${s}/">${s}</a></li>`).join('\n');

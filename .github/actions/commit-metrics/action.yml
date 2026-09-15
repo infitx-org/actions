@@ -1,0 +1,49 @@
+name: Commit metrics and history to the pull request
+description: >-
+    Commits the CI report's rebuilt baseline files (.github/metrics.json and
+    .github/history.jsonl) onto the pull request head branch, so merging the PR
+    brings the metrics and history to the base branch without a separate
+    post-merge commit. The caller's `rush ci-report` step is expected to have
+    already rebuilt both files as "base branch + this run".
+
+    Skips silently when the event is not a pull request, when the PR comes from a
+    fork (read-only token), and when the head commit is itself a metrics commit
+    (re-trigger guard). Never fails the job: a rejected push is a warning.
+inputs:
+    metrics-file:
+        description: Repository-relative path of the committed metrics baseline.
+        required: false
+        default: .github/metrics.json
+    history-file:
+        description: Repository-relative path of the committed history file.
+        required: false
+        default: .github/history.jsonl
+    token:
+        description: >-
+            Token with contents:write. Defaults to the workflow token, whose
+            pushes do not re-trigger workflows.
+        required: false
+        default: ''
+    message:
+        description: Commit message used for the update.
+        required: false
+        default: 'chore(metrics): update baseline'
+outputs:
+    committed:
+        description: 'true when a commit was pushed to the pull request branch.'
+        value: ${{ steps.commit.outputs.committed }}
+    head-ref:
+        description: Branch the update was pushed to (empty when skipped).
+        value: ${{ steps.commit.outputs.head-ref }}
+runs:
+    using: composite
+    steps:
+        - id: commit
+          name: Commit baseline to the PR branch
+          shell: bash
+          run: node "${{ github.action_path }}/index.mjs"
+          env:
+              INPUT_METRICS_FILE: ${{ inputs.metrics-file }}
+              INPUT_HISTORY_FILE: ${{ inputs.history-file }}
+              INPUT_TOKEN: ${{ inputs.token || github.token }}
+              INPUT_MESSAGE: ${{ inputs.message }}

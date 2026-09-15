@@ -27,6 +27,94 @@ jobs:
     uses: infitx-org/actions/.github/workflows/<name>.yaml@v1.0.0
 ```
 
+## Rush monorepo CI workflow
+
+`rush.yaml` is the reporting-focused CI workflow for Rush monorepos (blong and its
+derivatives). It runs `rush ci-test`, then delegates the whole report to a
+**repo-owned hook**:
+
+```yaml
+jobs:
+  build:
+    permissions:
+      contents: write # commit-metrics pushes the baseline to the PR branch
+      pull-requests: write
+    uses: infitx-org/actions/.github/workflows/rush.yaml@main
+    with:
+      ci-test-jobs: 2
+    secrets:
+      REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
+```
+
+| Input                | Purpose                                                                     |
+| -------------------- | --------------------------------------------------------------------------- |
+| `ci-test-jobs`       | Rush `--parallelism` for the test step.                                     |
+| `ci-test-verbose`    | `true` streams every project's output; the default buffers and shows only failures. |
+| `reports-repository` | Repository hosting the published reports (`<repo>-ci` by default).           |
+| `node-version`       | Node version used by every job.                                             |
+
+Secrets: `REPORT_TOKEN` (write access to the reports repository),
+`CHROMATIC_PROJECT_TOKEN`, `BLONG_MASTER_KEY`.
+
+### The `.ci-report/` contract
+
+Every package that runs tests writes `<pkg>/.ci-report/`: `report.json`
+(machine readable: package, runner, counts, suites, per-test status, message,
+stack, file, line, trace) plus `summary.md` for humans. Each runner does this
+itself — `blong-dev test` for tap, `blong-dev playwright` for Playwright,
+`blong-dev report vitest` for vitest.
+
+The workflow then runs the repository's `ci-report` script
+(`rush ci-report`, skipped silently when no package implements it), which:
+
+1. aggregates every `.ci-report/` into `report-data/ci-summary.json`,
+2. renders `ci-report.md` — the action run summary and the sticky PR comment,
+   with a per-package table, deltas against the base branch, and a **Failed
+   suites** section listing each failing test,
+3. writes the `metrics` snapshot artifact,
+4. rebuilds `.github/metrics.json` and `.github/history.jsonl` as *base branch +
+   this run* (never appending to whatever the branch already holds, so repeated
+   runs of one pull request cannot accumulate data),
+5. builds the failures bundle for a red run: `ci-failures/publish/` with
+   `index.html` (single-file Allure report of the failing tests only, from real
+   Playwright results plus synthesised ones for tap/vitest), `failures.json` (the
+   machine readable index an agent can read instead of the logs), `failures.md`
+   and `traces/`.
+
+`commit-metrics` then commits the two baseline files onto the pull request head
+branch, so merging the PR carries them to the base branch and no separate
+post-merge commit is needed. Add this to the caller so the metrics commit does not
+start another run (the action also carries the guard):
+
+```yaml
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - .github/metrics.json
+      - .github/history.jsonl
+```
+
+### Published reports
+
+Per-package payloads (`<pkg>/.ci-report/publish`) and the failures bundle are
+published to the `gh-pages` branch of the reports repository by `deploy-report`,
+under `docs/<tool>/<workflow>/<run-number>/`. The failures bundle additionally
+answers on a stable alias:
+
+- `https://<owner>.github.io/<reports-repo>/failures/<workflow>/<run>/failures.json`
+- `https://<owner>.github.io/<reports-repo>/failures/<workflow>/latest/failures.json`
+
+The alias is removed again on the next green run, so a URL handed to an agent
+never points at a stale report.
+
+### Action run duration
+
+The report is deliberately generated from JSON rather than from runner output:
+tap runs with its `json` reporter saved to `.ci-report/tap.json`, so the CI log
+only shows failing tests plus a summary line instead of every passing assertion
+and every diagnostics dump.
+
 ## Node.js CI Workflow
 
 This workflow sets up a Node.js environment for continuous integration (CI)

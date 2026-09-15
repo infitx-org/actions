@@ -3,8 +3,10 @@ description: >-
     Publishes one report directory (matrix item) to the <reports-repository>
     gh-pages branch under docs/<tool>/<workflow>/<run-number>, regenerates the
     per-level index.html files, prunes old numeric run dirs beyond keep-reports,
-    and force-pushes. Emits the published URL as an output and writes
-    <tool>.url.txt in the workspace for downstream upload.
+    and force-pushes. Optionally mirrors the run into docs/<tool>/<workflow>/<alias>
+    so a stable URL always resolves, or removes that alias with clean: true.
+    Emits the published URL as an output and writes <tool>.url.txt in the workspace
+    for downstream upload.
 inputs:
     report-token:
         description: >-
@@ -20,22 +22,35 @@ inputs:
         description: Report/tool name used in the docs/<tool>/... path (matrix.package).
         required: true
     run-num:
-        description: Current workflow run number (github.run_number).
-        required: true
-    run-id:
-        description: Current workflow run id (github.run_id) — informational only.
+        description: Current workflow run number (github.run_number). Required unless clean is true.
         required: false
         default: ''
     workflow:
         description: Workflow name used in the docs/<tool>/<workflow>/... path.
         required: true
     report-src:
-        description: Workspace-relative path of the report directory to publish (matrix.report).
-        required: true
+        description: >-
+            Workspace-relative path of the report directory to publish
+            (matrix.report). Required unless clean is true.
+        required: false
+        default: ''
     keep-reports:
         description: Number of most recent numeric run dirs to keep per tool/workflow.
         required: false
         default: '15'
+    alias:
+        description: >-
+            Optional directory name inside docs/<tool>/<workflow>/ that mirrors
+            the newest run (for example `latest`). Never pruned and hidden from
+            the generated index.
+        required: false
+        default: ''
+    clean:
+        description: >-
+            When 'true', remove docs/<tool>/<workflow>/<alias> instead of
+            publishing a run. Used to drop the alias once a run is green.
+        required: false
+        default: 'false'
 outputs:
     deployed:
         description: 'true when the report was pushed (or false when no token was available).'
@@ -55,7 +70,8 @@ runs:
               INPUT_EXT_REPO: ${{ inputs.ext-repo }}
               INPUT_TOOL: ${{ inputs.tool }}
               INPUT_RUN_NUM: ${{ inputs.run-num }}
-              INPUT_RUN_ID: ${{ inputs.run-id }}
               INPUT_WORKFLOW: ${{ inputs.workflow }}
               INPUT_REPORT_SRC: ${{ inputs.report-src }}
+              INPUT_ALIAS: ${{ inputs.alias }}
+              INPUT_CLEAN: ${{ inputs.clean }}
               INPUT_KEEP_REPORTS: ${{ inputs.keep-reports }}
