@@ -39,7 +39,7 @@ jobs:
           else
             echo "type=simple" >> $GITHUB_OUTPUT
           fi
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         if: ${{ env.token != '' }}
         with:
