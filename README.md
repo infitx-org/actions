@@ -68,9 +68,14 @@ The workflow then runs the repository's `ci-report` script
 (`rush ci-report`, skipped silently when no package implements it), which:
 
 1. aggregates every `.ci-report/` into `report-data/ci-summary.json`,
-2. renders `ci-report.md` — the action run summary and the sticky PR comment,
-   with a per-package table, deltas against the base branch, and a **Failed
-   suites** section listing each failing test,
+2. renders `ci-report.md` — the action run summary **and** the sticky
+   pull-request comment, the same document in both places: headline totals and
+   trend, one row per package carrying its test counts, coverage, deltas and a
+   link to its published report, and a **Failed suites** section listing each
+   failing test. The links are derived from the reports base URL plus the
+   workflow slug and run number (the workflow resolves the base URL before
+   rendering), so the report does not have to be assembled a second time once
+   the reports are actually published,
 3. writes the `metrics` snapshot artifact,
 4. rebuilds `.github/metrics.json` and `.github/history.jsonl` as *base branch +
    this run* (never appending to whatever the branch already holds, so repeated
@@ -83,8 +88,14 @@ The workflow then runs the repository's `ci-report` script
 
 `commit-metrics` then commits the two baseline files onto the pull request head
 branch, so merging the PR carries them to the base branch and no separate
-post-merge commit is needed. Add this to the caller so the metrics commit does not
-start another run (the action also carries the guard):
+post-merge commit is needed. The commit is made on a fresh clone of the branch
+tip (so the push is a fast-forward that cannot race with the run) and carries
+`[skip ci]`, because those pushes otherwise start a full CI run — attributed to
+`github-actions[bot]`, which GitHub can hold for maintainer approval.
+
+A caller can additionally filter the files at the trigger, which only helps when
+they are a pull request's sole changes, and should not require status checks on
+the branch it commits to: a skipped workflow leaves its checks pending.
 
 ```yaml
 on:
@@ -99,11 +110,13 @@ on:
 
 Per-package payloads (`<pkg>/.ci-report/publish`) and the failures bundle are
 published to the `gh-pages` branch of the reports repository by `deploy-report`,
-under `docs/<tool>/<workflow>/<run-number>/`. The failures bundle additionally
-answers on a stable alias:
+under `docs/<tool>/<workflow>/<run-number>/`. The report links each package's
+payload as `<base>/<package>/<workflow>/<run>/`, and the aggregate coverage and
+failure reports once per run. The failures bundle additionally answers on a
+stable alias:
 
-- `https://<owner>.github.io/<reports-repo>/failures/<workflow>/<run>/failures.json`
-- `https://<owner>.github.io/<reports-repo>/failures/<workflow>/latest/failures.json`
+- `<base>/failures/<workflow>/<run>/failures.json`
+- `<base>/failures/<workflow>/latest/failures.json`
 
 The alias is removed again on the next green run, so a URL handed to an agent
 never points at a stale report.

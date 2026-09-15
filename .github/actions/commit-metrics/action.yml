@@ -7,8 +7,12 @@ description: >-
     already rebuilt both files as "base branch + this run".
 
     Skips silently when the event is not a pull request, when the PR comes from a
-    fork (read-only token), and when the head commit is itself a metrics commit
-    (re-trigger guard). Never fails the job: a rejected push is a warning.
+    fork (read-only token), and when the branch tip is itself a metrics commit
+    (re-trigger guard). Never fails the job: a rejected push is a notice.
+
+    The commit message carries `[skip ci]` so the push cannot start another run.
+    Skipping leaves the workflow's checks pending, so callers should not require
+    those checks on the branch they commit to.
 inputs:
     metrics-file:
         description: Repository-relative path of the committed metrics baseline.
@@ -27,7 +31,7 @@ inputs:
     message:
         description: Commit message used for the update.
         required: false
-        default: 'chore(metrics): update baseline'
+        default: 'chore(metrics): update baseline [skip ci]'
 outputs:
     committed:
         description: 'true when a commit was pushed to the pull request branch.'

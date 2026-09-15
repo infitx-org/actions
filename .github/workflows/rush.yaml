@@ -184,6 +184,22 @@ jobs:
           done
           echo "CI_BASE_METRICS=$RUNNER_TEMP/baseline/metrics.json" >> "$GITHUB_ENV"
           echo "CI_BASE_HISTORY=$RUNNER_TEMP/baseline/history.jsonl" >> "$GITHUB_ENV"
+      - name: Resolve the reports base URL
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        # The report links every published report, and it is rendered here (before
+        # the artifacts are uploaded and published), so the base URL has to be
+        # known now. Falls back to the default Pages URL when the reports
+        # repository has no Pages site or no token is available to read it.
+        env:
+          GH_TOKEN: ${{ secrets.REPORT_TOKEN }}
+        run: |
+          repo="${{ inputs.reports-repository }}"
+          base="$(gh api "/repos/${repo}/pages" --jq .html_url 2>/dev/null || true)"
+          if [ -z "$base" ]; then
+            base="https://${repo%%/*}.github.io/${repo##*/}"
+          fi
+          echo "CI_REPORTS_BASE=${base%/}" >> "$GITHUB_ENV"
       - name: Build CI report
         if: ${{ !cancelled() }}
         # Repo-owned hook: aggregates every package's `.ci-report/`, renders
@@ -339,6 +355,8 @@ jobs:
         continue-on-error: true
       - name: Download report URLs
         if: ${{ !cancelled() }}
+        # Only used to decide whether a failures bundle was published: the URLs
+        # themselves are already inside the report.
         uses: actions/download-artifact@v8
         with:
           pattern: report-url-*
@@ -358,41 +376,6 @@ jobs:
           workflow: ${{ github.workflow }}
           alias: latest
           clean: 'true'
-      - name: Assemble comment
-        id: assemble
-        shell: bash
-        run: |
-          set -euo pipefail
-          comment="$RUNNER_TEMP/ci-comment.md"
-          : > "$comment"
-          if [ -f ci-report.md ]; then
-            cat ci-report.md >> "$comment"
-          fi
-          if [ -f failures.url.txt ]; then
-            base="$(cat failures.url.txt)"
-            latest="$(printf '%s' "$base" | sed 's/[0-9]*\/$/latest/')"
-            printf '\n🤖 **Failure report**: this run <%sfailures.json> · stable <%sfailures.json> · [Allure](%s)\n' \
-              "$base" "$latest" "$base" >> "$comment"
-          fi
-          shopt -s nullglob
-          urls=()
-          for f in ./*.url.txt; do
-            urls+=("$f")
-          done
-          if [ "${#urls[@]}" -gt 0 ]; then
-            printf '\n### Published reports\n\n| Package | Report |\n| --- | --- |\n' >> "$comment"
-            for f in "${urls[@]}"; do
-              pkg="${f##*/}"
-              pkg="${pkg%.url.txt}"
-              printf '| %s | %s |\n' "$pkg" "$(cat "$f")" >> "$comment"
-            done
-          fi
-          if [ -s "$comment" ]; then
-            echo "nonempty=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "nonempty=false" >> "$GITHUB_OUTPUT"
-          fi
-          echo "file=$comment" >> "$GITHUB_OUTPUT"
       - name: Clean up superseded report comments
         if: ${{ github.event_name == 'pull_request' && needs.publish-report.result != 'skipped' }}
         uses: actions/github-script@v9
@@ -409,11 +392,14 @@ jobs:
               }
             }
       - name: Post consolidated report comment
-        if: ${{ github.event_name == 'pull_request' && steps.assemble.outputs.nonempty == 'true' }}
+        # The comment is the same document the run summary shows — it is rendered
+        # once by `rush ci-report`, so it already carries the failure-report links
+        # and one row per package with its report link.
+        if: ${{ github.event_name == 'pull_request' && hashFiles('ci-report.md') != '' }}
         uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: ci-report
-          path: ${{ steps.assemble.outputs.file }}
+          path: ci-report.md
           ignore_empty: true
 
   chromatic:

@@ -14,6 +14,14 @@
 // expected outcome rather than the exception. Cloning the tip seconds before
 // pushing keeps the push a plain fast-forward whose only new content is these
 // two files, whatever else happened to the branch during the run.
+//
+// The message carries `[skip ci]`, the documented way to stop a push from
+// starting a run. Relying on "a GITHUB_TOKEN push does not trigger workflows"
+// was wrong in practice: metrics commits *did* start runs, most recently one
+// raised as `action_required` — i.e. a maintainer had to approve a full re-run
+// of CI to commit two files that the previous run had already validated. Skip
+// instructions leave the workflow's checks pending, so this is only safe while
+// the branch requires no status checks (blong's `main` is unprotected).
 import {copyFileSync, existsSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
@@ -21,7 +29,7 @@ import {join} from 'node:path';
 
 const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
 const token = (process.env.INPUT_TOKEN || '').trim();
-const message = (process.env.INPUT_MESSAGE || 'chore(metrics): update baseline').trim();
+const message = (process.env.INPUT_MESSAGE || 'chore(metrics): update baseline [skip ci]').trim();
 const files = [process.env.INPUT_METRICS_FILE || '.github/metrics.json', process.env.INPUT_HISTORY_FILE || '.github/history.jsonl']
     .map((file) => file.trim())
     .filter(Boolean);
