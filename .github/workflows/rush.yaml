@@ -391,6 +391,12 @@ jobs:
                 await github.rest.issues.deleteComment({owner, repo, comment_id: c.id});
               }
             }
+      - name: Note when no report was produced
+        # A repository without the repo-owned `ci-report` hook produces no
+        # ci-report.md, and the comment is then left alone; say so instead of
+        # skipping silently.
+        if: ${{ github.event_name == 'pull_request' && hashFiles('ci-report.md') == '' }}
+        run: echo "::notice::No ci-report.md was produced by this run, so the pull-request comment was left unchanged."
       - name: Post consolidated report comment
         # The comment is the same document the run summary shows — it is rendered
         # once by `rush ci-report`, so it already carries the failure-report links
