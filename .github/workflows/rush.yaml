@@ -459,6 +459,11 @@ jobs:
       - *cache
       - run: node common/scripts/install-run-rush.js ci-lint
         name: Lint Check
+      - name: Memory files check
+        # The agent memory files belong to no Rush project, so `rush ci-lint`
+        # never sees them: this is the gate for their structure, wrapping,
+        # generated index and spelling. Same command the pre-commit hook runs.
+        run: node tools/blong-dev/bin/blong-dev.ts memory check
 
   deprecation:
     runs-on: ubuntu-latest
