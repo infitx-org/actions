@@ -243,6 +243,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: reports
+          # `.ci-report` and `.playwright` start with a dot, and upload-artifact
+          # drops hidden files — including every file inside a hidden folder —
+          # unless this is set. Without it the artifact is empty of reports and
+          # every publish-report matrix entry fails with "report source not found".
+          include-hidden-files: true
           path: |
             app/*/.ci-report
             app/*/coverage*/lcov-report
