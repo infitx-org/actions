@@ -1,18 +1,31 @@
-name: Commit metrics and history to the pull request
+name: Stack metrics and history onto the pull request
 description: >-
-    Commits the CI report's rebuilt baseline files (.github/metrics.json and
-    .github/history.jsonl) onto the pull request head branch, so merging the PR
-    brings the metrics and history to the base branch without a separate
-    post-merge commit. The caller's `rush ci-report` step is expected to have
-    already rebuilt both files as "base branch + this run".
+    Publishes the CI report's rebuilt baseline files (.github/metrics.json and
+    .github/history.jsonl) as a stacked pull request: it pushes them to a
+    `metrics/` branch of their own and opens a pull request from there onto the
+    pull request head branch, so merging that pull request carries the metrics and
+    history to the base branch. The caller's `rush ci-report` step is expected to
+    have already rebuilt both files as "base branch + this run".
 
-    Skips silently when the event is not a pull request, when the PR comes from a
-    fork (read-only token), and when the branch tip is itself a metrics commit
-    (re-trigger guard). Never fails the job: a rejected push is a notice.
+    Committing them onto the head branch instead would make that commit the branch
+    tip, and such a commit has to carry `[skip ci]` — so the tip would show checks
+    that never run instead of the checks of the commit that was actually tested.
+    Stacking keeps the head branch's own commits as its tip, and turns the
+    generated files into a normal, optional, reviewable change. The stacked branch
+    is force-pushed to exactly one commit ahead of the head branch on every run, so
+    it is rebased onto a branch that moved rather than conflicting with it, and it
+    can never accumulate commits.
 
-    The commit message carries `[skip ci]` so the push cannot start another run.
-    Skipping leaves the workflow's checks pending, so callers should not require
-    those checks on the branch they commit to.
+    Nothing is skipped: the commit carries no `[skip ci]`, and the push and the
+    pull request both use the workflow token, whose events start no run. A marker
+    would travel into the head branch through the merge commit and suppress the run
+    for the merged result, and a PAT would start a run for the push and for the
+    opened pull request.
+
+    Skips silently when the event is not a pull request, when the pull request
+    comes from a fork (read-only token), and when the branch already carries the
+    baseline. Never fails the job: a rejected push is a notice, and so is a refused
+    pull request.
 inputs:
     metrics-file:
         description: Repository-relative path of the committed metrics baseline.
@@ -24,30 +37,31 @@ inputs:
         default: .github/history.jsonl
     token:
         description: >-
-            Token with contents:write. Defaults to the workflow token, whose
-            pushes do not re-trigger workflows.
+            Token with contents:write and pull-requests:write. Defaults to the
+            workflow token, whose events do not start workflow runs; a PAT here
+            would, so do not pass one. Opening the pull request additionally needs
+            the repository setting "Allow GitHub Actions to create and approve pull
+            requests".
         required: false
         default: ''
-    message:
-        description: Commit message used for the update.
-        required: false
-        default: 'chore(metrics): update baseline [skip ci]'
 outputs:
     committed:
-        description: 'true when a commit was pushed to the pull request branch.'
+        description: 'true when the stacked branch was pushed.'
         value: ${{ steps.commit.outputs.committed }}
     head-ref:
         description: Branch the update was pushed to (empty when skipped).
         value: ${{ steps.commit.outputs.head-ref }}
+    pull-request-url:
+        description: Pull request opened for the stacked branch (empty when skipped).
+        value: ${{ steps.commit.outputs.pull-request-url }}
 runs:
     using: composite
     steps:
         - id: commit
-          name: Commit baseline to the PR branch
+          name: Stack the baseline onto the pull request
           shell: bash
           run: node "${{ github.action_path }}/index.mjs"
           env:
               INPUT_METRICS_FILE: ${{ inputs.metrics-file }}
               INPUT_HISTORY_FILE: ${{ inputs.history-file }}
               INPUT_TOKEN: ${{ inputs.token || github.token }}
-              INPUT_MESSAGE: ${{ inputs.message }}

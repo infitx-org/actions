@@ -1,27 +1,38 @@
 #!/usr/bin/env node
-// Commit the rebuilt metrics baseline and history file onto the pull request
-// head branch. Dependency-free, like the other actions in this repository.
+// Publish the rebuilt metrics baseline and history file as a stacked pull request:
+// push them to a `metrics/` branch of their own and open a pull request from there
+// onto the pull request head branch.
+//
+// Committing them onto the head branch instead makes that commit the branch tip
+// and, because such a commit has to be pushed with `[skip ci]`, leaves the tip
+// showing checks that never run — hiding the checks of the commit that was really
+// pushed. A release-please branch makes it worse, since the bot rewrites it
+// whenever main moves. Stacking keeps the head branch's own commits as its tip, so
+// its checks stay readable, and turns the two generated files into a normal,
+// optional, reviewable change.
+//
+// Dependency-free, like the other actions in this repository.
 //
 // Expects the caller to have already produced the files (blong's `rush ci-report`
 // rebuilds them from the base branch plus the current run). This action only
-// decides whether pushing them is safe, then commits and pushes.
+// decides whether publishing them is safe, then commits, pushes and opens the
+// pull request.
 //
 // The commit is made in a scratch clone of the branch tip, never in the CI
 // checkout. By the time a test run finishes that checkout is a stale merge
 // commit of the whole repository, and pushing it races with whatever advanced
-// the branch meanwhile — which on a `release-please--*` branch is routine (the
-// bot pushes whenever main moves), so "push rejected, rebasing once" was the
-// expected outcome rather than the exception. Cloning the tip seconds before
-// pushing keeps the push a plain fast-forward whose only new content is these
-// two files, whatever else happened to the branch during the run.
+// the branch meanwhile — which on a `release-please--*` branch is routine. Cloning
+// the tip seconds before pushing makes the stacked branch the current tip plus
+// this one commit, whatever else happened during the run, and the force-push keeps
+// it at exactly that: the pull request rebases itself onto a branch that moved
+// instead of conflicting with it, and it cannot accumulate commits.
 //
-// The message carries `[skip ci]`, the documented way to stop a push from
-// starting a run. Relying on "a GITHUB_TOKEN push does not trigger workflows"
-// was wrong in practice: metrics commits *did* start runs, most recently one
-// raised as `action_required` — i.e. a maintainer had to approve a full re-run
-// of CI to commit two files that the previous run had already validated. Skip
-// instructions leave the workflow's checks pending, so this is only safe while
-// the branch requires no status checks (blong's `main` is unprotected).
+// Nothing carries `[skip ci]`. The push and the pull request are both made with the
+// workflow token (normally the caller's `github.token`), and events raised by that
+// token start no workflow run, so nothing has to be suppressed. A marker would be
+// actively harmful: merging the stacked pull request puts the commit on the head
+// branch, where it would suppress the run for the merged result. A PAT would start
+// a run for the push and for the opened pull request, so do not pass one.
 import {copyFileSync, existsSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
@@ -29,7 +40,7 @@ import {join} from 'node:path';
 
 const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
 const token = (process.env.INPUT_TOKEN || '').trim();
-const message = (process.env.INPUT_MESSAGE || 'chore(metrics): update baseline [skip ci]').trim();
+const message = 'chore(metrics): update baseline';
 const files = [process.env.INPUT_METRICS_FILE || '.github/metrics.json', process.env.INPUT_HISTORY_FILE || '.github/history.jsonl']
     .map((file) => file.trim())
     .filter(Boolean);
@@ -108,6 +119,13 @@ if (!token) skip('no token with contents:write available');
 const headRef = pr.head?.ref;
 if (!headRef) skip('pull request has no head ref');
 
+// Branch the stacked commit lives on. A fixed name, so one pull request keeps one
+// stacked pull request rather than a new one per push.
+const stackedRef = `metrics/${headRef}`;
+if (stackedRef === headRef || stackedRef === pr.base?.ref) {
+    skip(`the stacked branch "${stackedRef}" collides with one of the pull request's own branches`);
+}
+
 const present = files.filter((file) => existsSync(join(workspace, file)));
 if (present.length === 0) skip(`none of ${files.join(', ')} were produced by this run`);
 
@@ -133,10 +151,9 @@ function stage() {
 let staged = '';
 try {
     clone();
-    // Re-trigger guard, read from the branch tip rather than from the stale
-    // checkout: the workflow token does not re-trigger runs, but a PAT would.
-    const tip = gitOutput(['log', '-1', '--pretty=%s'], scratch);
-    if (tip.startsWith('chore(metrics)')) skip(`the branch tip is already a metrics commit ("${tip}")`);
+    // No re-trigger guard: the head branch never receives a metrics commit, and
+    // the stacked branch is rewritten to a single commit, so there is nothing to
+    // accumulate.
     staged = stage();
 } catch (error) {
     // A clone that cannot be made is an environment problem, not a test failure.
@@ -146,7 +163,10 @@ if (staged === '') skip('the baseline files are already up to date');
 
 git(['commit', '-q', '-m', message], {cwd: scratch});
 
-const push = () => gitOk(['push', '--quiet', 'origin', `HEAD:refs/heads/${headRef}`], scratch);
+// Force-push: the stacked branch is always the head branch tip plus this single
+// commit, so a run that follows a branch update replaces the previous stacked
+// commit instead of adding another one.
+const push = () => gitOk(['push', '--quiet', '--force', 'origin', `HEAD:refs/heads/${stackedRef}`], scratch);
 
 if (!push()) {
     // Someone advanced the branch between the clone and the push: take their
@@ -160,6 +180,67 @@ if (!push()) {
     if (!push()) skip('push was rejected twice (concurrent update on the branch)');
 }
 
+// --- Publish the stacked pull request ------------------------------------------
+const repository = process.env.GITHUB_REPOSITORY || '';
+const server = (process.env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '');
+const runUrl = `${server}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+/** Minimal REST call: the action stays dependency-free, so no octokit. */
+async function api(path, init = {}) {
+    const response = await fetch(`https://api.github.com/repos/${repository}${path}`, {
+        ...init,
+        headers: {
+            authorization: `Bearer ${token}`,
+            accept: 'application/vnd.github+json',
+            'content-type': 'application/json',
+            'user-agent': 'commit-metrics',
+            'x-github-api-version': '2022-11-28',
+        },
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error(`${init.method || 'GET'} ${path} returned ${response.status}: ${text}`);
+    return text ? JSON.parse(text) : undefined;
+}
+
+/**
+ * Open, or refresh, the pull request carrying the stacked commit onto the head
+ * branch. It is created with the same token as the push — the workflow token —
+ * because `pull_request` events raised by that token start no workflow run, which
+ * is the point here: a stacked pull request must not spend a full CI run on two
+ * generated files.
+ */
+async function publishStackedPullRequest() {
+    const owner = repository.split('/')[0];
+    const base = pr.base?.ref ?? 'the base branch';
+    const title = 'chore(metrics): update baseline';
+    const body = [
+        `Rebuilt \`.github/metrics.json\` and \`.github/history.jsonl\` from run [${process.env.GITHUB_RUN_NUMBER}](${runUrl}) — \`${base}\` plus that run's results.`,
+        '',
+        `They are stacked here instead of committed onto \`${headRef}\`, so that branch keeps the checks of its own commits: a metrics commit is skipped (\`[skip ci]\`) and would leave the branch tip waiting on checks that never run.`,
+        '',
+        `\`${stackedRef}\` is rewritten on every run — one commit, always the tip of \`${headRef}\` plus these two files — so this pull request never conflicts with the branch it targets. Merging it is what carries the baseline on to \`${base}\`; leaving it unmerged is harmless, because the next run rebuilds the baseline and reopens (or refreshes) this pull request.`,
+    ].join('\n');
+    const query = `?state=open&base=${encodeURIComponent(headRef)}&head=${encodeURIComponent(`${owner}:${stackedRef}`)}`;
+    const [existing] = (await api(`/pulls${query}`)) ?? [];
+    const pull = existing
+        ? await api(`/pulls/${existing.number}`, {method: 'PATCH', body: JSON.stringify({title, body})})
+        : await api('/pulls', {method: 'POST', body: JSON.stringify({title, body, head: stackedRef, base: headRef})});
+    setOutput('pull-request-url', pull.html_url);
+    return pull;
+}
+
 setOutput('committed', 'true');
-setOutput('head-ref', headRef);
-summary(`Committed ${staged.split('\n').join(', ')} onto \`${headRef}\` (${message}).`);
+setOutput('head-ref', stackedRef);
+try {
+    const pull = await publishStackedPullRequest();
+    summary(`Stacked ${staged.split('\n').join(', ')} on \`${headRef}\` as pull request #${pull.number} (${pull.html_url}).`);
+} catch (error) {
+    // The commit is pushed and does not depend on the pull request, so a failure
+    // here is a permissions or API problem, not a test failure: the next run of
+    // this pull request retries it.
+    const detail = `${error?.message ?? error}`;
+    if (detail.includes('not permitted to create')) {
+        console.log('::warning::the workflow token may not open pull requests in this repository — enable "Allow GitHub Actions to create and approve pull requests" in Settings → Actions → General → Workflow permissions');
+    }
+    console.log(`::warning::could not open the stacked pull request for ${stackedRef} (${detail})`);
+}

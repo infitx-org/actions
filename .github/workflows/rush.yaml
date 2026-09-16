@@ -210,8 +210,14 @@ jobs:
         run: node common/scripts/install-run-rush.js ci-report
         env:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
-      - name: Commit metrics and history to the pull request
+      - name: Stack metrics and history onto the pull request
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        # The two baseline files land on a `metrics/<branch>` branch of their own,
+        # with a pull request from there onto the branch under test: committing
+        # them onto that branch would make a skipped commit its tip and hide the
+        # checks of the commit that was actually tested. Pushed with the workflow
+        # token, whose events start no run. The caller's job therefore needs
+        # contents:write and pull-requests:write.
         uses: infitx-org/actions/.github/actions/commit-metrics@main
         with:
           metrics-file: .github/metrics.json

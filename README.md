@@ -37,8 +37,8 @@ derivatives). It runs `rush ci-test`, then delegates the whole report to a
 jobs:
   build:
     permissions:
-      contents: write # commit-metrics pushes the baseline to the PR branch
-      pull-requests: write
+      contents: write     # commit-metrics pushes the stacked metrics branch
+      pull-requests: write # ... and opens the pull request that carries it
     uses: infitx-org/actions/.github/workflows/rush.yaml@main
     with:
       ci-test-jobs: 2
@@ -86,16 +86,30 @@ The workflow then runs the repository's `ci-report` script
    machine readable index an agent can read instead of the logs), `failures.md`
    and `traces/`.
 
-`commit-metrics` then commits the two baseline files onto the pull request head
-branch, so merging the PR carries them to the base branch and no separate
-post-merge commit is needed. The commit is made on a fresh clone of the branch
-tip (so the push is a fast-forward that cannot race with the run) and carries
-`[skip ci]`, because those pushes otherwise start a full CI run — attributed to
-`github-actions[bot]`, which GitHub can hold for maintainer approval.
+`commit-metrics` then publishes the two baseline files as a **stacked pull
+request**: it pushes them to a `metrics/` branch of their own and opens a pull
+request from there onto the branch under test, so merging that pull request is
+what carries them to the base branch and no separate post-merge commit is needed.
+The commit is made on a fresh clone of the branch tip, so it cannot race with the
+run that produced it, and the stacked branch is force-pushed to exactly one commit
+ahead of the head branch on every run — it rebases itself onto a branch that moved
+(release-please rewrites its branch whenever `main` moves) rather than conflicting
+with it, and it cannot accumulate commits. When the branch already carries the
+baseline, the action skips.
+
+Committing onto the head branch instead would make that commit its tip, and such a
+commit has to carry `[skip ci]` — so the branch would show checks that never run
+instead of the checks of the commit that was actually tested. Stacking avoids that
+trap entirely: nothing is skipped, because the push and the pull request both use
+the workflow token, whose events start no run. That token needs `contents: write`
+and `pull-requests: write`, and the repository setting **Allow GitHub Actions to
+create and approve pull requests** (Settings → Actions → General → Workflow
+permissions): with it off the branch is still pushed and the action warns that the
+pull request was refused, which the next run retries. It must not be given a PAT,
+which would start runs — two generated files must not spend CI on themselves.
 
 A caller can additionally filter the files at the trigger, which only helps when
-they are a pull request's sole changes, and should not require status checks on
-the branch it commits to: a skipped workflow leaves its checks pending.
+they are a pull request's sole changes.
 
 ```yaml
 on:
