@@ -28,7 +28,7 @@ on:
         required: false
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       chromatic: ${{ steps.config.outputs.chromatic }}
       integration: ${{ steps.config.outputs.integration }}
@@ -99,7 +99,7 @@ jobs:
           fi
           echo "playwright=$(find . -path '*/node_modules/.bin/playwright' -print -quit 2>/dev/null)" >> $GITHUB_OUTPUT
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: setup
     outputs:
       reports: ${{ steps.result.outputs.reports }}
@@ -319,7 +319,7 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.tests.outputs.reports) }}
       max-parallel: 1
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - *node
       - name: Download Report
@@ -349,7 +349,7 @@ jobs:
           if-no-files-found: ignore
 
   report:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: [tests, publish-report]
     if: ${{ always() && !cancelled() }}
     steps:
@@ -415,7 +415,7 @@ jobs:
           ignore_empty: true
 
   chromatic:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: setup
     if: needs.setup.outputs.chromatic
     env:
@@ -433,7 +433,7 @@ jobs:
       - run: node common/scripts/install-run-rush.js ci-chromatic --to git:origin/${{ github.event.pull_request.base.ref }}
         name: Chromatic Storybook
   audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: setup
     steps:
       - uses: actions/checkout@v6
@@ -449,7 +449,7 @@ jobs:
           path: '**/audit/auditResults.json'
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: setup
     steps:
       - uses: actions/checkout@v6
@@ -464,7 +464,7 @@ jobs:
         run: node tools/blong-dev/bin/blong-dev.ts memory check
 
   deprecation:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: setup
     steps:
       - uses: actions/checkout@v6
@@ -474,7 +474,7 @@ jobs:
         name: Check for Deprecated dependencies
 
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Required permissions
     outputs:
       # Expose matched filters as job 'packages' output variable

@@ -20,7 +20,7 @@ on:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       token: ${{ secrets.token }}
     outputs:
@@ -98,7 +98,7 @@ jobs:
   setup-node:
     needs: release
     if: needs.release.outputs.released == 'true' && needs.release.outputs.npm != '[]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
       - &node
@@ -153,7 +153,7 @@ jobs:
     strategy:
       matrix:
         include: ${{ fromJson(needs.release.outputs.npm) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
       - *node
@@ -178,7 +178,7 @@ jobs:
   chromatic:
     needs: release
     if: needs.release.outputs.released == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
       CHROMATIC_BRANCH: main
