@@ -1,15 +1,23 @@
 #!/usr/bin/env node
-// Publish one report directory to a <owner>/<repo> gh-pages branch and emit the URL.
+// Publish a run's report directories to a <owner>/<repo> gh-pages branch and emit their URLs.
 //
-// Dependency-free port of the previous inline bash step. Behaviour is kept as
-// close to the original as possible:
-//   - token: GITHUB_TOKEN when publishing to the current repo, else report-token
-//     input; no token => warn + deployed=false (no error).
-//   - clone (or init) the gh-pages branch, copy docs/<tool>/<workflow>/<run>,
-//   - touch .nojekyll, prune numeric run dirs beyond keep-reports,
-//   - regenerate index.html at docs, docs/<tool>, docs/<tool>/<workflow>,
-//   - commit + force push, resolve the pages base URL (custom-domain aware),
-//   - outputs: deployed/url + <tool>.url.txt in GITHUB_WORKSPACE.
+// The whole run goes out in **one commit and one push**: a report per invocation
+// would clone, commit and push once per report, and every push to the same branch
+// cancels the Pages build the previous push started.
+//
+// Two JSON inputs drive it:
+//   - `reports`: array of {"tool","src"} — one entry per report directory of the
+//     run, all of them copied and pushed together;
+//   - `aliases`: object {"<tool>": "<alias>"} naming the tools that must answer on a
+//     stable URL. A tool that reported this run has its alias mirrored to the run; a
+//     tool named there that did *not* report has its alias dropped in the same
+//     commit, so a URL handed to an agent never keeps answering with a stale
+//     report.
+//
+// Also: clone (or init) the gh-pages branch, copy docs/<tool>/<workflow>/<run>,
+// touch .nojekyll, prune numeric run dirs beyond keep-reports, regenerate
+// index.html at docs, docs/<tool> and docs/<tool>/<workflow>, resolve the pages
+// base URL (custom-domain aware), and commit + force push.
 import {existsSync} from 'node:fs';
 import {copyFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
@@ -19,14 +27,10 @@ import {join} from 'node:path';
 const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
 const currentRepo = process.env.GITHUB_REPOSITORY || '';
 
-// --- Resolve token -------------------------------------------------------------
+// --- Resolve inputs ------------------------------------------------------------
 const extRepo = (process.env.INPUT_EXT_REPO || '').trim() || currentRepo;
-const tool = (process.env.INPUT_TOOL || '').trim();
-const runNum = (process.env.INPUT_RUN_NUM || '').trim();
 const workflow = (process.env.INPUT_WORKFLOW || '').trim();
-const reportSrc = (process.env.INPUT_REPORT_SRC || '').trim();
-const alias = (process.env.INPUT_ALIAS || '').trim();
-const clean = (process.env.INPUT_CLEAN || 'false').trim() === 'true';
+const runNum = (process.env.INPUT_RUN_NUM || '').trim();
 const keep = Math.max(1, Number(process.env.INPUT_KEEP_REPORTS || '15') || 15);
 const reportToken = (process.env.INPUT_REPORT_TOKEN || '').trim();
 
@@ -37,18 +41,52 @@ function setOutput(name, value) {
     if (file) writeFileSync(file, `${name}=${value}\n`, {flag: 'a'});
 }
 
-const missing = clean
-    ? !tool || !workflow || !alias
-    : !tool || !workflow || !runNum || !reportSrc;
-if (missing) {
-    console.error(
-        `deploy-report: missing required input (tool='${tool}' workflow='${workflow}' runNum='${runNum}' reportSrc='${reportSrc}' alias='${alias}' clean='${clean}')`,
-    );
+function fail(message) {
+    console.error(`deploy-report: ${message}`);
     setOutput('deployed', 'false');
     process.exit(1);
 }
+
+function parseJson(name, raw, fallback) {
+    const text = (raw || '').trim();
+    if (!text) return fallback;
+    try {
+        return JSON.parse(text);
+    } catch (err) {
+        return fail(`${name} is not valid JSON: ${err.message}`);
+    }
+}
+
+const reports = parseJson('reports', process.env.INPUT_REPORTS, []);
+const aliases = parseJson('aliases', process.env.INPUT_ALIASES, {});
+
+// --- Validate ------------------------------------------------------------------
+if (!Array.isArray(reports)) fail('reports must be a JSON array of {tool, src}');
+if (typeof aliases !== 'object' || aliases === null || Array.isArray(aliases))
+    fail('aliases must be a JSON object of {tool: alias}');
+
+const problems = [];
+if (!workflow) problems.push('workflow');
+if (reports.length && !runNum) problems.push('run-num');
+for (const [i, entry] of reports.entries()) {
+    if (!String((entry && entry.tool) || '').trim()) problems.push(`reports[${i}].tool`);
+    if (!String((entry && entry.src) || '').trim()) problems.push(`reports[${i}].src`);
+}
+const aliasTools = Object.entries(aliases).map(([name, alias]) => [String(name).trim(), String(alias).trim()]);
+for (const [name, alias] of aliasTools) {
+    if (!name) problems.push('aliases.<tool>');
+    if (!alias) problems.push(`aliases.${name}`);
+    // A numeric alias would collide with the run directories the pruner deletes.
+    if (/^\d+$/.test(alias)) problems.push(`aliases.${name} (numeric)`);
+}
+if (problems.length) fail(`missing or invalid input: ${problems.join(', ')}`);
 if (!token) {
     console.log(`::warning::No token available to publish to ${extRepo} (set REPORT_TOKEN for an external reports repo) — skipping deploy`);
+    setOutput('deployed', 'false');
+    process.exit(0);
+}
+if (!reports.length) {
+    console.log('deploy-report: reports is empty — nothing to publish');
     setOutput('deployed', 'false');
     process.exit(0);
 }
@@ -56,16 +94,10 @@ if (!token) {
 const [owner, extName] = extRepo.split('/');
 const pagesBranch = 'gh-pages';
 const authUrl = `https://x-access-token:${token}@github.com/${extRepo}.git`;
-const work = join(process.env.RUNNER_TEMP || tmpdir(), `publish-${tool}`);
+const work = join(process.env.RUNNER_TEMP || tmpdir(), 'publish-reports');
 
 function run(args, opts = {}) {
-    const {cwd, ignore = false} = opts;
-    try {
-        return execFileSync('git', args, {cwd, stdio: ignore ? 'ignore' : ['ignore', 'pipe', 'inherit'], encoding: 'utf8'});
-    } catch (err) {
-        if (!ignore) throw err;
-        return '';
-    }
+    return execFileSync('git', args, {cwd: opts.cwd, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8'});
 }
 const ok = (args, opts = {}) => {
     try {
@@ -78,7 +110,10 @@ const ok = (args, opts = {}) => {
 
 // --- Prepare the gh-pages working tree -----------------------------------------
 rmSync(work, {recursive: true, force: true});
-if (ok(['ls-remote', '--heads', authUrl, pagesBranch])) {
+// The exit code alone is not enough here: ls-remote also succeeds when it matched
+// nothing, and cloning a branch that is not there fails hard. An empty reports
+// repository (no gh-pages branch yet) is bootstrapped with a fresh branch instead.
+if (hasBranch(authUrl, pagesBranch)) {
     run(['clone', '-q', '--depth', '1', '--branch', pagesBranch, authUrl, work], {cwd: undefined});
 } else {
     mkdirSync(work, {recursive: true});
@@ -89,72 +124,66 @@ run(['config', 'user.email', 'actions@github.com'], {cwd: work});
 run(['config', 'user.name', 'github-actions'], {cwd: work});
 run(['config', 'pull.rebase', 'false'], {cwd: work});
 
-// --- Stage this run's report ---------------------------------------------------
+// --- Stage this run's reports --------------------------------------------------
 const wf = workflow.replace(/\s+/g, '-');
-const runDir = join('docs', tool, wf, runNum);
+const published = [];
+const dropped = [];
+const excludes = new Map(); // tool -> alias names hidden from its index
+const hide = (name) => {
+    if (!excludes.has(name)) excludes.set(name, new Set());
+    return excludes.get(name);
+};
 
-// Clean mode: drop the alias (used when a run is green and the previous failure
-// report would otherwise keep answering on the stable URL).
-if (clean) {
-    const aliasDir = join('docs', tool, wf, alias);
-    if (!existsSync(join(work, aliasDir))) {
-        console.log(`Nothing to clean: ${aliasDir} does not exist`);
-        setOutput('deployed', 'false');
-        process.exit(0);
+for (const {tool, src} of reports.map((entry) => ({tool: String(entry.tool).trim(), src: String(entry.src).trim()}))) {
+    const runDir = join('docs', tool, wf, runNum);
+    mkdirSync(join(work, runDir), {recursive: true});
+    const abs = join(workspace, src);
+    if (existsSync(abs)) {
+        for (const entry of readdirSync(abs)) {
+            copyRecursive(join(abs, entry), join(work, runDir, entry));
+        }
+    } else {
+        console.log(`::warning::report source not found: ${src}`);
     }
-    rmSync(join(work, aliasDir), {recursive: true, force: true});
-    genIndex(join(work, 'docs', tool, wf), `${tool} — ${wf}`, new Set([alias]));
-    run(['add', '-A'], {cwd: work});
-    if (!ok(['diff', '--cached', '--quiet'], {cwd: work})) {
-        run(['commit', '-q', '-m', `report(${tool}): drop ${alias}`], {cwd: work});
-        run(['push', '-q', '--force', authUrl, `HEAD:${pagesBranch}`], {cwd: work});
-        console.log(`Removed ${aliasDir} from ${extRepo}`);
-    }
-    setOutput('deployed', 'true');
-    process.exit(0);
+    writeFileSync(join(work, 'docs', '.nojekyll'), '');
+    prune(join(work, 'docs', tool, wf));
+    published.push(tool);
+    hide(tool);
 }
 
-mkdirSync(join(work, runDir), {recursive: true});
-const src = join(workspace, reportSrc);
-if (existsSync(src)) {
-    for (const entry of readdirSync(src)) {
-        copyRecursive(join(src, entry), join(work, runDir, entry));
+// --- Maintain the stable aliases -----------------------------------------------
+// After pruning, so an alias can never point at a run that was just removed. A
+// tool that reported this run mirrors it; one that did not has its alias dropped
+// (a green run publishes no failures bundle, and the previous one must stop
+// answering on the stable URL).
+for (const [tool, alias] of aliasTools) {
+    const aliasDir = join(work, 'docs', tool, wf, alias);
+    if (published.includes(tool)) {
+        rmSync(aliasDir, {recursive: true, force: true});
+        copyRecursive(join(work, 'docs', tool, wf, runNum), aliasDir);
+    } else if (existsSync(aliasDir)) {
+        rmSync(aliasDir, {recursive: true, force: true});
+        dropped.push(`${tool}/${alias}`);
     }
-} else {
-    console.log(`::warning::report source not found: ${reportSrc}`);
-}
-writeFileSync(join(work, 'docs', '.nojekyll'), '');
-
-// --- Prune old numeric run directories -----------------------------------------
-const root = join(work, 'docs', tool, wf);
-const numericDirs = readdirSync(root, {withFileTypes: true})
-    .filter((d) => d.isDirectory() && /^\d+$/.test(d.name))
-    .map((d) => d.name)
-    .sort((a, b) => Number(a) - Number(b));
-if (numericDirs.length > keep) {
-    for (const old of numericDirs.slice(0, numericDirs.length - keep)) {
-        rmSync(join(root, old), {recursive: true, force: true});
-    }
-}
-
-// --- Mirror the run into the alias directory (stable URL) ----------------------
-// After pruning, so the alias can never point at a removed run.
-if (alias) {
-    const aliasDir = join(root, alias);
-    rmSync(aliasDir, {recursive: true, force: true});
-    copyRecursive(join(work, runDir), aliasDir);
+    hide(tool).add(alias);
 }
 
 // --- Regenerate index.html at each level ---------------------------------------
-genIndex(join(work, 'docs', tool, wf), `${tool} — ${wf}`, new Set(alias ? [alias] : []));
-genIndex(join(work, 'docs', tool), `${tool} reports`);
-genIndex(join(work, 'docs'), 'Reports');
+for (const [tool, exclude] of excludes) {
+    const root = join(work, 'docs', tool, wf);
+    if (!existsSync(root)) continue;
+    genIndex(root, `${tool} — ${wf}`, exclude);
+    genIndex(join(work, 'docs', tool), `${tool} reports`);
+}
+if (existsSync(join(work, 'docs'))) genIndex(join(work, 'docs'), 'Reports');
 
-// --- Commit + force push --------------------------------------------------------
+// --- Commit + force push, once for the whole run --------------------------------
 run(['add', '-A'], {cwd: work});
 if (!ok(['diff', '--cached', '--quiet'], {cwd: work})) {
-    run(['commit', '-q', '-m', `report(${tool}): ${wf} run ${runNum}`], {cwd: work});
+    const summary = `${published.length} report(s)` + (dropped.length ? `, ${dropped.length} stale alias(es) removed` : '');
+    run(['commit', '-q', '-m', `report: ${wf}${runNum ? ` run ${runNum}` : ''} — ${summary}`], {cwd: work});
     run(['push', '-q', '--force', authUrl, `HEAD:${pagesBranch}`], {cwd: work});
+    console.log(`Pushed to ${extRepo}: ${summary}`);
 }
 
 // --- Resolve the base URL (custom-domain aware) ---------------------------------
@@ -171,14 +200,40 @@ try {
 }
 if (!base) base = `https://${owner}.github.io/${extName}`;
 base = base.replace(/\/+$/, '');
-const url = `${base}/${tool}/${wf}/${runNum}/`;
+
+const urls = {};
+for (const tool of published) {
+    const url = `${base}/${tool}/${wf}/${runNum}/`;
+    urls[tool] = url;
+    console.log(`Published ${tool} report: ${url}`);
+}
+for (const alias of dropped) console.log(`Removed stale alias ${alias}`);
 
 setOutput('deployed', 'true');
-setOutput('url', url);
-writeFileSync(join(workspace, `${tool}.url.txt`), url, 'utf8');
-console.log(`Published ${tool} report: ${url}`);
+setOutput('urls', JSON.stringify(urls));
 
 // --- Helpers -------------------------------------------------------------------
+function hasBranch(url, branch) {
+    try {
+        const refs = execFileSync('git', ['ls-remote', '--heads', url, branch], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        return refs.trim() !== '';
+    } catch {
+        return false;
+    }
+}
+function prune(root) {
+    if (!existsSync(root)) return;
+    const numericDirs = readdirSync(root, {withFileTypes: true})
+        .filter((d) => d.isDirectory() && /^\d+$/.test(d.name))
+        .map((d) => d.name)
+        .sort((a, b) => Number(a) - Number(b));
+    for (const old of numericDirs.slice(0, Math.max(0, numericDirs.length - keep))) {
+        rmSync(join(root, old), {recursive: true, force: true});
+    }
+}
 function copyRecursive(src, dst) {
     if (statSync(src).isDirectory()) {
         mkdirSync(dst, {recursive: true});

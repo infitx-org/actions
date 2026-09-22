@@ -126,14 +126,23 @@ Per-package payloads (`<pkg>/.ci-report/publish`) and the failures bundle are
 published to the `gh-pages` branch of the reports repository by `deploy-report`,
 under `docs/<tool>/<workflow>/<run-number>/`. The report links each package's
 payload as `<base>/<package>/<workflow>/<run>/`, and the aggregate coverage and
-failure reports once per run. The failures bundle additionally answers on a
-stable alias:
+failure reports once per run.
+
+One run is one commit and one push: the publish job hands the whole list of reports
+to `deploy-report`, which copies every one of them in a single clone of the branch
+and pushes once. A job per report (the previous matrix) cloned, committed and
+force-pushed the same branch once per report instead, and each of those pushes
+cancels the Pages build the previous one started.
+
+The failures bundle additionally answers on a stable alias:
 
 - `<base>/failures/<workflow>/<run>/failures.json`
 - `<base>/failures/<workflow>/latest/failures.json`
 
-The alias is removed again on the next green run, so a URL handed to an agent
-never points at a stale report.
+Aliases are maintained declaratively through `deploy-report`'s `aliases` input: a
+tool that reported has its alias re-mirrored to the run, and a tool that did not
+report — `failures` on a green run, which produces no bundle — has its alias dropped
+in that same commit, so a URL handed to an agent never points at a stale report.
 
 ### Action run duration
 

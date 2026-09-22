@@ -231,18 +231,19 @@ jobs:
           shopt -s nullglob globstar
           REPORTS="["
           # Explicit category globs (rather than +(...) extglob, which depends on
-          # shopt running before the line is parsed).
+          # shopt running before the line is parsed). The list is the only input of
+          # the publish job, which copies every entry and pushes once.
           for dir in app/*/.ci-report/publish core/*/.ci-report/publish ext/*/.ci-report/publish \
                      library/*/.ci-report/publish realm/*/.ci-report/publish suite/*/.ci-report/publish \
                      demo/*/.ci-report/publish test/*/.ci-report/publish tools/*/.ci-report/publish; do
-            pkg="$(basename "$(dirname "$(dirname "${dir}")")")"
-            REPORTS="$REPORTS{\"report\":\"${dir}\",\"package\":\"${pkg}\"},"
+            tool="$(basename "$(dirname "$(dirname "${dir}")")")"
+            REPORTS="$REPORTS{\"tool\":\"${tool}\",\"src\":\"${dir}\"},"
           done
           if [ -d ci-failures/publish ]; then
-            REPORTS="$REPORTS{\"report\":\"ci-failures/publish\",\"package\":\"failures\"},"
+            REPORTS="$REPORTS{\"tool\":\"failures\",\"src\":\"ci-failures/publish\"},"
           fi
           if [ -d coverage/lcov-report ]; then
-            REPORTS="$REPORTS{\"report\":\"coverage/lcov-report\",\"package\":\"coverage\"},"
+            REPORTS="$REPORTS{\"tool\":\"coverage\",\"src\":\"coverage/lcov-report\"},"
           fi
           REPORTS="${REPORTS%,}]"
           echo "reports=$REPORTS" >> $GITHUB_OUTPUT
@@ -267,8 +268,8 @@ jobs:
           name: reports
           # `.ci-report` and `.playwright` start with a dot, and upload-artifact
           # drops hidden files — including every file inside a hidden folder —
-          # unless this is set. Without it the artifact is empty of reports and
-          # every publish-report matrix entry fails with "report source not found".
+          # unless this is set. Without it the artifact is empty of reports and the
+          # publish job warns that every report source is missing.
           include-hidden-files: true
           path: |
             app/*/.ci-report
@@ -314,39 +315,34 @@ jobs:
   publish-report:
     needs:
       - tests
-    if: ${{ !cancelled() && needs.tests.outputs.reports != '[]' }}
-    strategy:
-      matrix:
-        include: ${{ fromJson(needs.tests.outputs.reports) }}
-      max-parallel: 1
+    # '' when the tests job never ran (its outputs are then empty), '[]' when the
+    # run produced nothing to publish.
+    if: ${{ !cancelled() && needs.tests.outputs.reports != '' && needs.tests.outputs.reports != '[]' }}
     runs-on: ubuntu-26.04
     steps:
       - *node
-      - name: Download Report
+      - name: Download Reports
         uses: actions/download-artifact@v8
         with:
           name: reports
       - name: Deploy Reports to GitHub Pages
         id: deploy
+        # One job for the whole run, and one push with it. A matrix entry per
+        # report cloned, committed and force-pushed the branch once per report, and
+        # every push to it cancels the Pages build the previous push started — the
+        # reports all land in a single commit here instead.
         uses: infitx-org/actions/.github/actions/deploy-report@main
         with:
           report-token: ${{ secrets.REPORT_TOKEN }}
           ext-repo: ${{ inputs.reports-repository }}
-          tool: ${{ matrix.package }}
           run-num: ${{ github.run_number }}
           workflow: ${{ github.workflow }}
-          report-src: ${{ matrix.report }}
+          reports: ${{ needs.tests.outputs.reports }}
           keep-reports: '15'
           # The failures bundle also answers on a stable URL, so an agent can be
-          # pointed at `<tool>/<workflow>/latest/failures.json`.
-          alias: ${{ matrix.package == 'failures' && 'latest' || '' }}
-      - name: Upload report URL
-        if: ${{ steps.deploy.outputs.deployed == 'true' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: report-url-${{ matrix.package }}
-          path: ${{ matrix.package }}.url.txt
-          if-no-files-found: ignore
+          # pointed at `<tool>/<workflow>/latest/failures.json`. A green run
+          # publishes no bundle, and the action drops the alias in the same commit.
+          aliases: '{"failures":"latest"}'
 
   report:
     runs-on: ubuntu-26.04
@@ -359,29 +355,6 @@ jobs:
         with:
           name: ci-report
         continue-on-error: true
-      - name: Download report URLs
-        if: ${{ !cancelled() }}
-        # Only used to decide whether a failures bundle was published: the URLs
-        # themselves are already inside the report.
-        uses: actions/download-artifact@v8
-        with:
-          pattern: report-url-*
-          merge-multiple: true
-        continue-on-error: true
-      - *node
-      - name: Drop the failures alias when the run is green
-        # publish-report only publishes a failures bundle for a red run, so on a
-        # green one the previous `latest/` has to be removed explicitly.
-        if: ${{ !cancelled() && !hashFiles('failures.url.txt') }}
-        uses: infitx-org/actions/.github/actions/deploy-report@main
-        continue-on-error: true
-        with:
-          report-token: ${{ secrets.REPORT_TOKEN }}
-          ext-repo: ${{ inputs.reports-repository }}
-          tool: failures
-          workflow: ${{ github.workflow }}
-          alias: latest
-          clean: 'true'
       - name: Clean up superseded report comments
         if: ${{ github.event_name == 'pull_request' && needs.publish-report.result != 'skipped' }}
         uses: actions/github-script@v9
