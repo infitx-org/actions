@@ -157,7 +157,48 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - *node
-      - *cache
+      # `&cache-restore` is the anchor the jobs that do not build use. Only a job
+      # that runs `rush rebuild` may write the shared pnpm key: its archive is the
+      # one carrying every `*/dist`. A job that only installs and then saves wins
+      # the race with a build-less archive of its own, and since an exact cache hit
+      # suppresses saving, that archive is then handed to every later run falling
+      # back to the default branch — `rush.yaml`'s test job never builds, so it is
+      # the first to break (`@feasibleone/blong/dist/types.js` not found).
+      - &cache-restore
+        name: cache pnpm store (restore only)
+        id: cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            common/temp
+            app/**/node_modules
+            app/*/dist
+            app/*/.rush
+            core/**/node_modules
+            core/*/dist
+            core/*/.rush
+            realm/**/node_modules
+            realm/*/dist
+            realm/*/.rush
+            suite/**/node_modules
+            suite/*/dist
+            suite/*/.rush
+            demo/**/node_modules
+            demo/*/dist
+            demo/*/.rush
+            test/**/node_modules
+            test/*/dist
+            test/*/.rush
+            tools/**/node_modules
+            tools/*/dist
+            tools/*/.rush
+            ext/**/node_modules
+            ext/*/dist
+            ext/*/.rush
+            library/**/node_modules
+            library/*/dist
+            library/*/.rush
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Fail if cache not hit
         if: steps.cache.outputs.cache-hit != 'true'
         run: exit 1
@@ -189,7 +230,9 @@ jobs:
         with:
           fetch-depth: 0
       - *node
-      - *cache
+      # Restore only: this job never builds, so its filesystem must not become the
+      # cache for a key the test jobs read (see the anchor in `publish-package`).
+      - *cache-restore
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - name: Chromatic Storybook baseline

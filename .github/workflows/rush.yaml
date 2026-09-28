@@ -43,6 +43,13 @@ jobs:
           node-version: ${{ inputs.node-version }}
       - &cache
         name: cache pnpm store
+        # Only the `setup` job may write this key: it is the job that runs
+        # `rush rebuild`, so its archive is the one carrying every `*/dist`. The
+        # jobs below restore the same key without building, and an exact hit
+        # suppresses saving, so a build-less writer elsewhere (see
+        # `release-docker.yaml`, where a job saved before the builder did) leaves
+        # the test job without `@feasibleone/blong/dist/types.js` and takes every
+        # package that imports it down with it.
         uses: actions/cache@v5
         with:
           path: |
