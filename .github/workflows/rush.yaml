@@ -149,6 +149,23 @@ jobs:
         if: needs.setup.outputs.integration == 'true'
         run: kubectl apply -k test/integration/
 
+      # Resolved before the tests, not after them: a package's own report is rendered
+      # by the run that produces it, and it links each Playwright trace to
+      # `trace.playwright.dev`, which needs the URL the archive will have once it is
+      # published. Falls back to the default Pages URL when the reports repository has
+      # no Pages site or no token is available to read it.
+      - name: Resolve the reports base URL
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.REPORT_TOKEN }}
+        run: |
+          repo="${{ inputs.reports-repository }}"
+          base="$(gh api "/repos/${repo}/pages" --jq .html_url 2>/dev/null || true)"
+          if [ -z "$base" ]; then
+            base="https://${repo%%/*}.github.io/${repo##*/}"
+          fi
+          echo "CI_REPORTS_BASE=${base%/}" >> "$GITHUB_ENV"
       - name: Run Tests
         id: test
         if: ${{ !cancelled() }}
@@ -191,22 +208,6 @@ jobs:
           done
           echo "CI_BASE_METRICS=$RUNNER_TEMP/baseline/metrics.json" >> "$GITHUB_ENV"
           echo "CI_BASE_HISTORY=$RUNNER_TEMP/baseline/history.jsonl" >> "$GITHUB_ENV"
-      - name: Resolve the reports base URL
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        # The report links every published report, and it is rendered here (before
-        # the artifacts are uploaded and published), so the base URL has to be
-        # known now. Falls back to the default Pages URL when the reports
-        # repository has no Pages site or no token is available to read it.
-        env:
-          GH_TOKEN: ${{ secrets.REPORT_TOKEN }}
-        run: |
-          repo="${{ inputs.reports-repository }}"
-          base="$(gh api "/repos/${repo}/pages" --jq .html_url 2>/dev/null || true)"
-          if [ -z "$base" ]; then
-            base="https://${repo%%/*}.github.io/${repo##*/}"
-          fi
-          echo "CI_REPORTS_BASE=${base%/}" >> "$GITHUB_ENV"
       - name: Build CI report
         if: ${{ !cancelled() }}
         # Repo-owned hook: aggregates every package's `.ci-report/`, renders
