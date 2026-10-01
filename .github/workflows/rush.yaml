@@ -81,6 +81,15 @@ jobs:
             library/**/node_modules
             library/*/dist
             library/*/.rush
+            # The docs project's `node_modules` is deliberately not cached: it is the
+            # one project no job in this workflow builds or tests, and its tree is
+            # installed by npm rather than through the pnpm store (hundreds of real
+            # megabytes restored by every job that only needs `common/temp`). Its
+            # `.rush` does have to be here — Rush reads the per-project
+            # `.rush/temp/shrinkwrap-deps.json` when it calculates the repo state, and
+            # a job that restores `common/temp` without it reports "A project
+            # dependency file … is missing" and then runs without diffing or caching.
+            docs/*/.rush
           key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
@@ -123,6 +132,14 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Install Playwright
         id: pw-install
+        # A head start, not the guarantee. The system libraries are the part that needs
+        # root, so installing them here — once, before any package runs — is what keeps the
+        # packages from fighting over the package-manager lock. The browsers themselves are
+        # per-Playwright-version (`~/.cache/ms-playwright/chromium-<revision>`), and this
+        # step can only install the ones belonging to the copy `find` happened to return,
+        # so each package's leg installs its own before it runs (`blong-dev playwright`,
+        # `blong-dev browsers`). Installing here as well is what makes a warm cache enough
+        # for most runs.
         if: needs.setup.outputs.playwright != ''
         run: |
           ${{ needs.setup.outputs.playwright }} install-deps chromium
@@ -177,6 +194,10 @@ jobs:
         run: node common/scripts/install-run-rush.js ci-test --parallelism=${{ inputs.ci-test-jobs }} ${{ inputs.ci-test-verbose && '--verbose' || '' }}
         env:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
+          # Says "do not install system libraries from a test process" — `--with-deps` needs
+          # root and the step above already ran it. It no longer means "do not install
+          # browsers": a leg whose Chromium revision is missing installs it (no root needed),
+          # because the alternative is the run dying with "Executable doesn't exist at …".
           PLAYWRIGHT_SKIP_INSTALL: '1'
       - name: Collect CI failure diagnostics (k8s + MySQL)
         if: ${{ steps.test.outcome == 'failure' && needs.setup.outputs.ci-diagnostics == 'true' }}
@@ -371,10 +392,19 @@ jobs:
             const {owner, repo} = context.repo;
             const pr = context.issue.number;
             if (!pr) return;
+            // The report's own signature, not a phrase from an older renderer: the
+            // document `rush ci-report` renders starts with the `## CI Summary`
+            // heading, and the stub below posts it after this step, so a match here
+            // can only be a report left by an earlier run (or by a tool that posted
+            // one under a different sticky header). The `report published at`
+            // alternative is the line the workflow's own wrapper used to add before
+            // the rendering moved into `rush ci-report`, kept so comments carrying
+            // it are still cleaned up.
+            const superseded = /(^|\n)## CI Summary\b|📊 .*report published at/;
             const {data: comments} = await github.rest.issues.listComments({owner, repo, issue_number: pr});
             for (const c of comments) {
               const bot = c.user && c.user.type === 'Bot';
-              if (bot && /📊 .*report published at/.test(c.body || '')) {
+              if (bot && superseded.test(c.body || '')) {
                 await github.rest.issues.deleteComment({owner, repo, comment_id: c.id});
               }
             }
