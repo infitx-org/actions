@@ -502,7 +502,7 @@ jobs:
             echo "$file: ${file%${file#*/*/}}package.json" >> $GITHUB_OUTPUT
           done
           echo "EOF" >> $GITHUB_OUTPUT
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         if: steps.docker-files.outputs.filters != ''
         name: Filter changes
