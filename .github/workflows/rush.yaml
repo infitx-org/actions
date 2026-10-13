@@ -473,6 +473,13 @@ jobs:
         # never sees them: this is the gate for their structure, wrapping,
         # generated index and spelling. Same command the pre-commit hook runs.
         run: node tools/blong-dev/bin/blong-dev.ts memory check
+      - name: Reference check
+        # Every `@@` reference and every relative link into the docs, skills or
+        # memory trees must resolve; the `refs` linter is the gate, and it runs
+        # here as well as in the pre-commit hook so a broken reference is caught
+        # without one. An unknown or ambiguous target is an error, a retired id a
+        # warning that names its successor.
+        run: node tools/blong-dev/bin/blong-dev.ts memory refs --dangling
 
   deprecation:
     runs-on: ubuntu-26.04
