@@ -28,48 +28,45 @@ on:
         required: false
 # What the dependency cache carries, in one place: the `cache pnpm store` step
 # restores and writes it, and the `Cache diagnostics` step reports it path by path.
-# The save pays per *file*, not per byte — run 38455044041 spent 29 minutes packing
-# 462k files into a 741 MB archive while the 270 MB Playwright archive (a few
-# thousand files) saved in six seconds, about 3.8 ms per file (@@F-522) — so a line
-# here is worth minutes on every run that writes the archive.
+#
+# The store travels as one `deps.tar.zst` rather than as a tree. What a cache step
+# pays for is not the bytes but the enumeration of the paths it was handed — about
+# 12 ms per file for a save and 6 ms for an upload's glob — so the 209k files under
+# `common/temp` cost 41 minutes to write (measured 2026-10-14, @@F-522), where the
+# same tree tarred and zstd-ed takes 2.8 seconds and its 767 MB archive restores in
+# 20. One file saves in seconds. The trees derived from the store are not in the
+# archive at all: `rush install` rebuilds `common/temp/node_modules` and every
+# project's `node_modules` from it in 8-23 seconds, node-rdkafka's native build
+# included, because pnpm keeps a package's build output in the store's index
+# (@@D-546).
 #
 # Nothing inside the list below may be a comment: a `|` block scalar keeps a `#`
 # line as data, and both actions/cache and the diagnostic would be handed it as a
 # path. The docs project's `node_modules` is deliberately absent — it is the one
 # project no job here builds or tests, and its tree is installed by npm rather than
-# through the pnpm store (hundreds of megabytes restored by every job that only needs
-# `common/temp`). Its `.rush` is on the list because Rush reads the per-project
-# `.rush/temp/shrinkwrap-deps.json` when it calculates the repo state: a job that
-# restores `common/temp` without it reports "A project dependency file … is missing"
-# and then runs with no diffing or caching.
+# through the pnpm store. Its `.rush` is on the list because Rush reads the
+# per-project `.rush/temp/shrinkwrap-deps.json` when it calculates the repo state: a
+# job that restores the archive without it reports "A project dependency file … is
+# missing" and then runs with no diffing or caching.
 env:
   CACHE_PATHS: |
-    common/temp
-    app/**/node_modules
+    common/temp/deps.tar.zst
     app/*/dist
     app/*/.rush
-    core/**/node_modules
     core/*/dist
     core/*/.rush
-    realm/**/node_modules
     realm/*/dist
     realm/*/.rush
-    suite/**/node_modules
     suite/*/dist
     suite/*/.rush
-    demo/**/node_modules
     demo/*/dist
     demo/*/.rush
-    test/**/node_modules
     test/*/dist
     test/*/.rush
-    tools/**/node_modules
     tools/*/dist
     tools/*/.rush
-    ext/**/node_modules
     ext/*/dist
     ext/*/.rush
-    library/**/node_modules
     library/*/dist
     library/*/.rush
     docs/*/.rush
@@ -81,6 +78,7 @@ jobs:
       integration: ${{ steps.config.outputs.integration }}
       playwright: ${{ steps.config.outputs.playwright }}
       ci-diagnostics: ${{ steps.config.outputs.ci-diagnostics }}
+    audit: ${{ steps.config.outputs.audit }}
     steps:
       - uses: actions/checkout@v6
       - &node
@@ -103,10 +101,37 @@ jobs:
           # reads it, so the cache and what is reported on it cannot drift.
           path: ${{ env.CACHE_PATHS }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
+      - &unpack
+        name: Unpack the pnpm store
+        # The archive holds the store as one `deps.tar.zst` (see the list at the top of
+        # this file), so every job that restores it unpacks it before installing. An
+        # archive left under an older key holds the tree instead, so a missing tarball
+        # is not an error — the install then finds the store already in place, or
+        # downloads it. `zstd` piped into `tar` rather than `tar --zstd`, so the step
+        # does not depend on how the runner's tar was built.
+        run: |
+          if [ -f common/temp/deps.tar.zst ]; then
+            zstd -dc common/temp/deps.tar.zst | tar -xf - -C .
+          else
+            echo 'No deps.tar.zst in the restored archive; the install builds the store.'
+          fi
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
         run: node common/scripts/install-run-rush.js rebuild --verbose
+      - name: Pack the pnpm store
+        # One file instead of 209k, which is the whole of this step's point (@@F-522).
+        # The store is what the archive needs; the trees derived from it —
+        # `common/temp/node_modules`, every project's `node_modules`, and the
+        # `install-run` copy of Rush — are rebuilt by `rush install`, the native build
+        # included (@@D-546).
+        run: |
+          if [ -d common/temp/pnpm-store ]; then
+            tar -cf - common/temp/pnpm-store | zstd -3 -T0 -q -f -o common/temp/deps.tar.zst
+            ls -l common/temp/deps.tar.zst
+          else
+            echo 'No pnpm store at common/temp/pnpm-store; nothing to pack.'
+          fi
       - name: Cache diagnostics
         # What the cache step above will write at the end of this job, in the two
         # numbers that decide how long writing it takes: the file count and the bytes.
@@ -202,6 +227,17 @@ jobs:
             echo "ci-diagnostics=" >> $GITHUB_OUTPUT
           fi
           echo "playwright=$(find . -path '*/node_modules/.bin/playwright' -print -quit 2>/dev/null)" >> $GITHUB_OUTPUT
+          # A `ci-audit` script nobody defines makes the audit job a twenty-minute
+          # walk for nothing: `rush ci-audit` skips every package
+          # (`ignoreMissingScript` in command-line.json), and the upload's `**` glob
+          # then resolves over the whole workspace to find no file at all (@@F-522). A
+          # repository that does audit keeps the job.
+          AUDIT_SCRIPTS="$(git ls-files '*/package.json' 'package.json' | xargs -r grep -l '"ci-audit"' 2>/dev/null || true)"
+          if [ -n "$AUDIT_SCRIPTS" ]; then
+            echo "audit=true" >> $GITHUB_OUTPUT
+          else
+            echo "audit=" >> $GITHUB_OUTPUT
+          fi
   tests:
     runs-on: ubuntu-26.04
     needs: setup
@@ -211,6 +247,7 @@ jobs:
       - uses: actions/checkout@v6
       - *node
       - *cache
+      - *unpack
       - name: Rush Install
         # This job restores the archive but does not write it, so it depends on what
         # that archive happens to contain — and a build-less archive left behind by
@@ -536,6 +573,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
       - *node
       - *cache
+      - *unpack
       - name: Rush Install
         # See the tests job: seconds against a warm store, and the job stops
         # depending on what the restored archive happens to contain (@@F-309).
@@ -549,18 +587,41 @@ jobs:
       - uses: actions/checkout@v6
       - *node
       - *cache
+      - *unpack
       - name: Rush Install
         # See the tests job: seconds against a warm store, and the job stops
         # depending on what the restored archive happens to contain (@@F-309).
         run: node common/scripts/install-run-rush.js install
-      - run: node common/scripts/install-run-rush.js ci-audit
-        name: Audit Check for dependencies
+      - name: Note when no package audits
+        # A repository whose packages define no `ci-audit` script has nothing to audit:
+        # `rush ci-audit` skips every package (`ignoreMissingScript` in
+        # command-line.json) and the upload's glob then resolves over the whole
+        # workspace to find no file at all, which cost twenty minutes of a runner for a
+        # step that was green because it did nothing (@@F-522). The job still runs and
+        # reports, so a required status check is never left waiting.
+        if: needs.setup.outputs.audit != 'true'
+        run: 'echo "::notice::No package defines a ci-audit script — nothing to audit, nothing to upload."'
+      - name: Audit Check for dependencies
+        if: needs.setup.outputs.audit == 'true'
+        run: node common/scripts/install-run-rush.js ci-audit
       - name: Upload Audit Results
-        if: always()
+        if: always() && needs.setup.outputs.audit == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: audit-results
-          path: '**/audit/auditResults.json'
+          # Explicit category globs rather than `**/`: a recursive pattern is walked by
+          # the action itself, about 6 ms per file, which is twenty minutes against
+          # this workspace (@@F-522).
+          path: |
+            app/*/audit/auditResults.json
+            core/*/audit/auditResults.json
+            ext/*/audit/auditResults.json
+            library/*/audit/auditResults.json
+            realm/*/audit/auditResults.json
+            suite/*/audit/auditResults.json
+            demo/*/audit/auditResults.json
+            test/*/audit/auditResults.json
+            tools/*/audit/auditResults.json
 
   lint:
     runs-on: ubuntu-26.04
@@ -569,6 +630,7 @@ jobs:
       - uses: actions/checkout@v6
       - *node
       - *cache
+      - *unpack
       - name: Rush Install
         # See the tests job: seconds against a warm store, and the job stops
         # depending on what the restored archive happens to contain (@@F-309).
@@ -595,6 +657,7 @@ jobs:
       - uses: actions/checkout@v6
       - *node
       - *cache
+      - *unpack
       - name: Rush Install
         # See the tests job: seconds against a warm store, and the job stops
         # depending on what the restored archive happens to contain (@@F-309).

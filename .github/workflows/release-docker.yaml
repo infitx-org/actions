@@ -18,6 +18,36 @@ on:
       CHROMATIC_PROJECT_TOKEN:
         required: false
 
+# The same payload as `rush.yaml`'s `CACHE_PATHS`, and it has to stay that way: both
+# workflows write one key, `Linux-pnpm-<lockfile hash>`, so a different list here
+# would hand the other workflow an archive it does not expect. The store travels as a
+# single `deps.tar.zst` because a cache step pays per enumerated file — 209k files
+# cost 41 minutes to write, one file takes seconds (@@F-522) — and the trees derived
+# from the store are rebuilt by `rush install` in seconds, native build included
+# (@@D-546). See that file for the reasoning; keep the two lists identical.
+env:
+  CACHE_PATHS: |
+    common/temp/deps.tar.zst
+    app/*/dist
+    app/*/.rush
+    core/*/dist
+    core/*/.rush
+    realm/*/dist
+    realm/*/.rush
+    suite/*/dist
+    suite/*/.rush
+    demo/*/dist
+    demo/*/.rush
+    test/*/dist
+    test/*/.rush
+    tools/*/dist
+    tools/*/.rush
+    ext/*/dist
+    ext/*/.rush
+    library/*/dist
+    library/*/.rush
+    docs/*/.rush
+
 jobs:
   release:
     runs-on: ubuntu-26.04
@@ -111,40 +141,32 @@ jobs:
         id: cache
         uses: actions/cache@v5
         with:
-          path: |
-            common/temp
-            app/**/node_modules
-            app/*/dist
-            app/*/.rush
-            core/**/node_modules
-            core/*/dist
-            core/*/.rush
-            realm/**/node_modules
-            realm/*/dist
-            realm/*/.rush
-            suite/**/node_modules
-            suite/*/dist
-            suite/*/.rush
-            demo/**/node_modules
-            demo/*/dist
-            demo/*/.rush
-            test/**/node_modules
-            test/*/dist
-            test/*/.rush
-            tools/**/node_modules
-            tools/*/dist
-            tools/*/.rush
-            ext/**/node_modules
-            ext/*/dist
-            ext/*/.rush
-            library/**/node_modules
-            library/*/dist
-            library/*/.rush
+          path: ${{ env.CACHE_PATHS }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
+      - &unpack
+        name: Unpack the pnpm store
+        # The archive holds the store as one `deps.tar.zst`, so it has to be unpacked
+        # before an install can use it. `zstd` piped into `tar` rather than `tar --zstd`,
+        # so the step does not depend on how the runner's tar was built, and an archive
+        # from an older key holds the tree instead — a missing tarball is not an error.
+        run: |
+          if [ -f common/temp/deps.tar.zst ]; then
+            zstd -dc common/temp/deps.tar.zst | tar -xf - -C .
+          else
+            echo 'No deps.tar.zst in the restored archive; the install builds the store.'
+          fi
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
         run: node common/scripts/install-run-rush.js rebuild --verbose
+      - name: Pack the pnpm store
+        run: |
+          if [ -d common/temp/pnpm-store ]; then
+            tar -cf - common/temp/pnpm-store | zstd -3 -T0 -q -f -o common/temp/deps.tar.zst
+            ls -l common/temp/deps.tar.zst
+          else
+            echo 'No pnpm store at common/temp/pnpm-store; nothing to pack.'
+          fi
 
   publish-package:
     needs:
@@ -169,39 +191,12 @@ jobs:
         id: cache
         uses: actions/cache/restore@v5
         with:
-          path: |
-            common/temp
-            app/**/node_modules
-            app/*/dist
-            app/*/.rush
-            core/**/node_modules
-            core/*/dist
-            core/*/.rush
-            realm/**/node_modules
-            realm/*/dist
-            realm/*/.rush
-            suite/**/node_modules
-            suite/*/dist
-            suite/*/.rush
-            demo/**/node_modules
-            demo/*/dist
-            demo/*/.rush
-            test/**/node_modules
-            test/*/dist
-            test/*/.rush
-            tools/**/node_modules
-            tools/*/dist
-            tools/*/.rush
-            ext/**/node_modules
-            ext/*/dist
-            ext/*/.rush
-            library/**/node_modules
-            library/*/dist
-            library/*/.rush
+          path: ${{ env.CACHE_PATHS }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Fail if cache not hit
         if: steps.cache.outputs.cache-hit != 'true'
         run: exit 1
+      - *unpack
       - name: Run publish script ${{ matrix.package }}
         run: |
           node common/scripts/install-run-rush.js install
@@ -233,6 +228,7 @@ jobs:
       # Restore only: this job never builds, so its filesystem must not become the
       # cache for a key the test jobs read (see the anchor in `publish-package`).
       - *cache-restore
+      - *unpack
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - name: Chromatic Storybook baseline
