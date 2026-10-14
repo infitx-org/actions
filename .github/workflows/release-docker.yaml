@@ -143,6 +143,9 @@ jobs:
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
+          # The same fallback as `rush.yaml`: a changed lockfile restores the newest archive and
+          # downloads the difference, and an exact miss is still what this job saves under.
+          restore-keys: ${{ runner.os }}-pnpm-
       - &unpack
         name: Unpack the pnpm store
         # The archive holds the store as one `deps.tar.zst`, so it has to be unpacked
@@ -193,6 +196,9 @@ jobs:
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
+          # No `restore-keys` here, deliberately: `publish-package` must not publish a tree it
+          # did not build, and its `Fail if cache not hit` guard means what it says, so this key
+          # has to match exactly rather than fall back to an older archive.
       - name: Fail if cache not hit
         if: steps.cache.outputs.cache-hit != 'true'
         run: exit 1
