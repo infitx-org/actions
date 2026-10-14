@@ -26,6 +26,53 @@ on:
         required: false
       REPORT_TOKEN:
         required: false
+# What the dependency cache carries, in one place: the `cache pnpm store` step
+# restores and writes it, and the `Cache diagnostics` step reports it path by path.
+# The save pays per *file*, not per byte — run 38455044041 spent 29 minutes packing
+# 462k files into a 741 MB archive while the 270 MB Playwright archive (a few
+# thousand files) saved in six seconds, about 3.8 ms per file (@@F-522) — so a line
+# here is worth minutes on every run that writes the archive.
+#
+# Nothing inside the list below may be a comment: a `|` block scalar keeps a `#`
+# line as data, and both actions/cache and the diagnostic would be handed it as a
+# path. The docs project's `node_modules` is deliberately absent — it is the one
+# project no job here builds or tests, and its tree is installed by npm rather than
+# through the pnpm store (hundreds of megabytes restored by every job that only needs
+# `common/temp`). Its `.rush` is on the list because Rush reads the per-project
+# `.rush/temp/shrinkwrap-deps.json` when it calculates the repo state: a job that
+# restores `common/temp` without it reports "A project dependency file … is missing"
+# and then runs with no diffing or caching.
+env:
+  CACHE_PATHS: |
+    common/temp
+    app/**/node_modules
+    app/*/dist
+    app/*/.rush
+    core/**/node_modules
+    core/*/dist
+    core/*/.rush
+    realm/**/node_modules
+    realm/*/dist
+    realm/*/.rush
+    suite/**/node_modules
+    suite/*/dist
+    suite/*/.rush
+    demo/**/node_modules
+    demo/*/dist
+    demo/*/.rush
+    test/**/node_modules
+    test/*/dist
+    test/*/.rush
+    tools/**/node_modules
+    tools/*/dist
+    tools/*/.rush
+    ext/**/node_modules
+    ext/*/dist
+    ext/*/.rush
+    library/**/node_modules
+    library/*/dist
+    library/*/.rush
+    docs/*/.rush
 jobs:
   setup:
     runs-on: ubuntu-26.04
@@ -52,49 +99,90 @@ jobs:
         # package that imports it down with it.
         uses: actions/cache@v5
         with:
-          path: |
-            common/temp
-            app/**/node_modules
-            app/*/dist
-            app/*/.rush
-            core/**/node_modules
-            core/*/dist
-            core/*/.rush
-            realm/**/node_modules
-            realm/*/dist
-            realm/*/.rush
-            suite/**/node_modules
-            suite/*/dist
-            suite/*/.rush
-            demo/**/node_modules
-            demo/*/dist
-            demo/*/.rush
-            test/**/node_modules
-            test/*/dist
-            test/*/.rush
-            tools/**/node_modules
-            tools/*/dist
-            tools/*/.rush
-            ext/**/node_modules
-            ext/*/dist
-            ext/*/.rush
-            library/**/node_modules
-            library/*/dist
-            library/*/.rush
-            # The docs project's `node_modules` is deliberately not cached: it is the
-            # one project no job in this workflow builds or tests, and its tree is
-            # installed by npm rather than through the pnpm store (hundreds of real
-            # megabytes restored by every job that only needs `common/temp`). Its
-            # `.rush` does have to be here — Rush reads the per-project
-            # `.rush/temp/shrinkwrap-deps.json` when it calculates the repo state, and
-            # a job that restores `common/temp` without it reports "A project
-            # dependency file … is missing" and then runs without diffing or caching.
-            docs/*/.rush
+          # The list lives at the top of this file, where the diagnostic step also
+          # reads it, so the cache and what is reported on it cannot drift.
+          path: ${{ env.CACHE_PATHS }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('common/config/rush/pnpm-lock.yaml') }}
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
         run: node common/scripts/install-run-rush.js rebuild --verbose
+      - name: Cache diagnostics
+        # What the cache step above will write at the end of this job, in the two
+        # numbers that decide how long writing it takes: the file count and the bytes.
+        # The save pays per *file*, not per byte — 38455044041 spent 29 minutes packing
+        # 462k files into a 741 MB archive, while the 270 MB Playwright archive (a
+        # few thousand files) saved in six seconds, about 3.8 ms per file (@@F-522).
+        # The rows name the parts that could be dropped, so the next reduction argues
+        # from these numbers rather than from the runner's clock.
+        run: |
+          CATEGORIES="app core realm suite demo test tools ext library"
+          # The guards are load-bearing: `find` with no path argument walks the
+          # working directory and so does `du`, which is how one stray word in the
+          # list becomes a plausible-looking row full of nonsense.
+          count() { [ "$#" -gt 0 ] || return 0; find "$@" -type f 2>/dev/null | wc -l; }
+          bytes() { [ "$#" -gt 0 ] || return 0; du -cb "$@" 2>/dev/null | tail -1 | cut -f1; }
+          row() {
+            NAME="$1"
+            shift
+            # A symlink reports nothing: the archive stores the link, not the tree
+            # behind it, and `find` would happily walk the target.
+            if [ -z "${1:-}" ] || [ -L "${1:-}" ]; then
+              printf '| %s | — | — |\n' "$NAME"
+              return 0
+            fi
+            printf '| %s | %s | %s |\n' "$NAME" "$(count "$@")" "$(bytes "$@")"
+          }
+          # One glob per category, the way the list at the top of this file writes it.
+          globs() {
+            OUT=""
+            for CATEGORY in $CATEGORIES; do
+              [ -d "$CATEGORY" ] || continue
+              OUT="$OUT $CATEGORY/*/$1"
+            done
+            echo $OUT
+          }
+          # Built first, then echoed to both the log and the run summary: the log is
+          # what `gh api .../jobs/<id>/logs` can read back without a browser.
+          OUT="$(
+            echo '## What the cache carries'
+            echo
+            echo '| cached path | files | bytes |'
+            echo '| --- | ---: | ---: |'
+            while read -r CACHED; do
+              [ -n "$CACHED" ] || continue
+              # A comment in the list is data rather than a comment; skip it instead
+              # of measuring the working directory through it.
+              case "$CACHED" in '#'*) continue ;; esac
+              # Unquoted on purpose: a line may be a glob, which the shell expands
+              # the way actions/cache expands it.
+              row "$CACHED" $CACHED
+            done <<< "$CACHE_PATHS"
+            echo
+            echo '### the same tree, by subtree'
+            echo
+            echo '| subtree | files | bytes |'
+            echo '| --- | ---: | ---: |'
+            row 'pnpm store' common/temp/pnpm-store
+            row 'common/temp/node_modules (derived)' common/temp/node_modules
+            row 'common/temp/install-run' common/temp/install-run
+            row 'project node_modules (derived)' $(globs node_modules)
+            row 'project dist' $(globs dist)
+            row 'project .rush' $(globs .rush)
+            echo
+            echo '### pnpm store layouts'
+            echo
+            echo 'A store keeps one directory per layout generation, and only the one'
+            echo 'the running pnpm writes is read again.'
+            echo
+            echo '| generation | files | bytes |'
+            echo '| --- | ---: | ---: |'
+            for GENERATION in common/temp/pnpm-store/*/; do
+              [ -d "$GENERATION" ] || continue
+              row "${GENERATION%/}" "$GENERATION"
+            done
+          )" || true
+          printf '%s\n' "$OUT" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
       - name: Config check
         id: config
         run: |
@@ -123,6 +211,13 @@ jobs:
       - uses: actions/checkout@v6
       - *node
       - *cache
+      - name: Rush Install
+        # This job restores the archive but does not write it, so it depends on what
+        # that archive happens to contain — and a build-less archive left behind by
+        # another writer took nineteen packages down with a missing `dist/types.js`
+        # (@@F-309). Installing against a warm store costs seconds and makes the job
+        # independent of the archive's provenance (@@F-522).
+        run: node common/scripts/install-run-rush.js install
       - name: Cache Playwright browsers
         id: pw-cache
         uses: actions/cache@v5
@@ -441,6 +536,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
       - *node
       - *cache
+      - name: Rush Install
+        # See the tests job: seconds against a warm store, and the job stops
+        # depending on what the restored archive happens to contain (@@F-309).
+        run: node common/scripts/install-run-rush.js install
       - run: node common/scripts/install-run-rush.js ci-chromatic --to git:origin/${{ github.event.pull_request.base.ref }}
         name: Chromatic Storybook
   audit:
@@ -450,6 +549,10 @@ jobs:
       - uses: actions/checkout@v6
       - *node
       - *cache
+      - name: Rush Install
+        # See the tests job: seconds against a warm store, and the job stops
+        # depending on what the restored archive happens to contain (@@F-309).
+        run: node common/scripts/install-run-rush.js install
       - run: node common/scripts/install-run-rush.js ci-audit
         name: Audit Check for dependencies
       - name: Upload Audit Results
@@ -466,6 +569,10 @@ jobs:
       - uses: actions/checkout@v6
       - *node
       - *cache
+      - name: Rush Install
+        # See the tests job: seconds against a warm store, and the job stops
+        # depending on what the restored archive happens to contain (@@F-309).
+        run: node common/scripts/install-run-rush.js install
       - run: node common/scripts/install-run-rush.js ci-lint
         name: Lint Check
       - name: Memory files check
@@ -488,6 +595,10 @@ jobs:
       - uses: actions/checkout@v6
       - *node
       - *cache
+      - name: Rush Install
+        # See the tests job: seconds against a warm store, and the job stops
+        # depending on what the restored archive happens to contain (@@F-309).
+        run: node common/scripts/install-run-rush.js install
       - run: node common/scripts/install-run-rush.js ci-deprecation
         name: Check for Deprecated dependencies
 
