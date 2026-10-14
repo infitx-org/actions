@@ -78,7 +78,7 @@ jobs:
       integration: ${{ steps.config.outputs.integration }}
       playwright: ${{ steps.config.outputs.playwright }}
       ci-diagnostics: ${{ steps.config.outputs.ci-diagnostics }}
-    audit: ${{ steps.config.outputs.audit }}
+      audit: ${{ steps.config.outputs.audit }}
     steps:
       - uses: actions/checkout@v6
       - &node
