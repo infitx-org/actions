@@ -427,6 +427,10 @@ jobs:
         run: node common/scripts/install-run-rush.js ci-report
         env:
           BLONG_MASTER_KEY: ${{ secrets.BLONG_MASTER_KEY }}
+          # The test step's own outcome, so a red run can name the packages that
+          # produced no report — a suite that never ran is otherwise invisible in
+          # a run that failed for another reason.
+          CI_TESTS_OUTCOME: ${{ steps.test.outcome }}
       - name: Stack metrics and history onto the pull request
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         # The two baseline files land on a `metrics/<branch>` branch of their own,
