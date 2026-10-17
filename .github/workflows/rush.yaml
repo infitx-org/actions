@@ -19,6 +19,14 @@ on:
         required: false
         type: boolean
         default: false
+      allure-ga-id:
+        description: >-
+            Google Analytics measurement ID the published Allure reports collect their
+            page views under. `off` removes the tag; empty leaves Allure's own property
+            in place.
+        required: false
+        type: string
+        default: G-71E7JT1KEP
     secrets:
       CHROMATIC_PROJECT_TOKEN:
         required: false
@@ -307,6 +315,8 @@ jobs:
       # it opens.
       BLONG_ALLURE_MAIN_URL: ../../../_assets/allure
       BLONG_ALLURE_MAIN_DIR: _assets/allure
+      # Empty leaves Allure's own analytics tag in place; `off` removes it (@@D-564).
+      BLONG_ALLURE_GA_ID: ${{ inputs.allure-ga-id }}
     steps:
       - uses: actions/checkout@v6
       - *node

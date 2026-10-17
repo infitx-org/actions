@@ -50,6 +50,7 @@ jobs:
 | -------------------- | --------------------------------------------------------------------------- |
 | `ci-test-jobs`       | Rush `--parallelism` for the test step.                                     |
 | `ci-test-verbose`    | `true` streams every project's output; the default buffers and shows only failures. |
+| `allure-ga-id`       | Google Analytics measurement ID for the published Allure reports; `off` removes the tag. |
 | `reports-repository` | Repository hosting the published reports (`<repo>-ci` by default).           |
 | `node-version`       | Node version used by every job.                                             |
 
