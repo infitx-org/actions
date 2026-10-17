@@ -297,6 +297,16 @@ jobs:
     needs: setup
     outputs:
       reports: ${{ steps.result.outputs.reports }}
+      assets: ${{ steps.result.outputs.assets }}
+    env:
+      # Every report page is published at `docs/<tool>/<workflow>/<run>/`, so one
+      # relative path reaches the same directory from all of them. The pages reference
+      # that one copy instead of carrying a bundle each: `blong-dev` writes it once into
+      # `_assets/allure` while the packages run, and `deploy-report` copies that
+      # directory to the site root, where a browser downloads it once for every report
+      # it opens.
+      BLONG_ALLURE_MAIN_URL: ../../../_assets/allure
+      BLONG_ALLURE_MAIN_DIR: _assets/allure
     steps:
       - uses: actions/checkout@v6
       - *node
@@ -467,7 +477,15 @@ jobs:
             REPORTS="$REPORTS{\"tool\":\"coverage\",\"src\":\"coverage/lcov-report\"},"
           fi
           REPORTS="${REPORTS%,}]"
+          # Shared assets (the Allure bundle every report references) are copied to the
+          # site root, not into a run directory. Only announced when the tests wrote
+          # them, so a repository without Allure publishing passes on nothing.
+          ASSETS='[]'
+          if [ -d _assets ]; then
+            ASSETS='[{"src":"_assets","dest":"_assets"}]'
+          fi
           echo "reports=$REPORTS" >> $GITHUB_OUTPUT
+          echo "assets=$ASSETS" >> $GITHUB_OUTPUT
       - name: Upload CI summary
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -529,6 +547,8 @@ jobs:
             library/*/coverage*/lcov-report
             coverage*/lcov-report
             ci-failures
+            # The bundle every report references, written once by `blong-dev`.
+            _assets
       - name: Fail job when tests failed
         if: ${{ steps.test.outcome == 'failure' }}
         run: exit 1
@@ -559,6 +579,8 @@ jobs:
           run-num: ${{ github.run_number }}
           workflow: ${{ github.workflow }}
           reports: ${{ needs.tests.outputs.reports }}
+          # The bundle every report references, copied to the site root once.
+          assets: ${{ needs.tests.outputs.assets }}
           keep-reports: '15'
           # The failures bundle also answers on a stable URL, so an agent can be
           # pointed at `<tool>/<workflow>/latest/failures.json`. A green run

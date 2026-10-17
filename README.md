@@ -144,6 +144,18 @@ tool that reported has its alias re-mirrored to the run, and a tool that did not
 report — `failures` on a green run, which produces no bundle — has its alias dropped
 in that same commit, so a URL handed to an agent never points at a stale report.
 
+### Shared assets
+
+Allure inlines its whole application into a single-file report — about 3.5 MB in every
+page, identical across reports built by one Allure version. Those files belong outside
+the run directories: `blong-dev` writes the bundle once under `_assets/allure/` with a
+content-addressed name, and every page loads it through a path that reaches the site
+root from `docs/<tool>/<workflow>/<run>/`. The workflow passes that directory to
+`deploy-report` as `assets`, which copies it once into `docs/_assets/`, so one file
+serves every report of every tool and run and a browser keeps it in cache across them.
+Nothing is pruned from it: a new Allure version adds a file, and the previous one
+stays as long as a retained run references it.
+
 ### Action run duration
 
 The report is deliberately generated from JSON rather than from runner output:

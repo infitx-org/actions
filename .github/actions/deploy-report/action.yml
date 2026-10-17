@@ -46,6 +46,17 @@ inputs:
             mirrors this run when the tool reported, and is removed when it did not.
         required: false
         default: '{}'
+    assets:
+        description: >-
+            JSON array of {"src": "...", "dest": "..."} — directories copied once
+            into the site root, at docs/<dest>, instead of into a run directory. They
+            hold what every report references but none of them should carry: the
+            content-addressed Allure application bundle. `src` is workspace-relative;
+            `dest` is relative to the site root. Existing files are overwritten and
+            others are kept, because a retained run may still reference an older
+            bundle.
+        required: false
+        default: '[]'
     keep-reports:
         description: Number of most recent numeric run dirs to keep per tool/workflow.
         required: false
@@ -73,4 +84,5 @@ runs:
               INPUT_WORKFLOW: ${{ inputs.workflow }}
               INPUT_REPORTS: ${{ inputs.reports }}
               INPUT_ALIASES: ${{ inputs.aliases }}
+              INPUT_ASSETS: ${{ inputs.assets }}
               INPUT_KEEP_REPORTS: ${{ inputs.keep-reports }}

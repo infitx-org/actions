@@ -13,6 +13,9 @@
 //     tool named there that did *not* report has its alias dropped in the same
 //     commit, so a URL handed to an agent never keeps answering with a stale
 //     report.
+//   - `assets`: array of {"src","dest"} — directories copied once into the site
+//     root, for the files every report references and none should carry (the
+//     content-addressed Allure application bundle).
 //
 // Also: clone (or init) the gh-pages branch, copy docs/<tool>/<workflow>/<run>,
 // touch .nojekyll, prune numeric run dirs beyond keep-reports, regenerate
@@ -59,11 +62,13 @@ function parseJson(name, raw, fallback) {
 
 const reports = parseJson('reports', process.env.INPUT_REPORTS, []);
 const aliases = parseJson('aliases', process.env.INPUT_ALIASES, {});
+const sharedAssets = parseJson('assets', process.env.INPUT_ASSETS, []);
 
 // --- Validate ------------------------------------------------------------------
 if (!Array.isArray(reports)) fail('reports must be a JSON array of {tool, src}');
 if (typeof aliases !== 'object' || aliases === null || Array.isArray(aliases))
     fail('aliases must be a JSON object of {tool: alias}');
+if (!Array.isArray(sharedAssets)) fail('assets must be a JSON array of {src, dest}');
 
 const problems = [];
 if (!workflow) problems.push('workflow');
@@ -71,6 +76,10 @@ if (reports.length && !runNum) problems.push('run-num');
 for (const [i, entry] of reports.entries()) {
     if (!String((entry && entry.tool) || '').trim()) problems.push(`reports[${i}].tool`);
     if (!String((entry && entry.src) || '').trim()) problems.push(`reports[${i}].src`);
+}
+for (const [i, entry] of sharedAssets.entries()) {
+    if (!String((entry && entry.src) || '').trim()) problems.push(`assets[${i}].src`);
+    if (!String((entry && entry.dest) || '').trim()) problems.push(`assets[${i}].dest`);
 }
 const aliasTools = Object.entries(aliases).map(([name, alias]) => [String(name).trim(), String(alias).trim()]);
 for (const [name, alias] of aliasTools) {
@@ -151,6 +160,27 @@ for (const {tool, src} of reports.map((entry) => ({tool: String(entry.tool).trim
     hide(tool);
 }
 
+// --- Stage this run's shared assets --------------------------------------------
+// Copied into the site root once, after the reports that reference them. A run that
+// publishes several reports of one tool would otherwise carry a copy of the Allure
+// application bundle in every run directory; here one file serves every report, run and
+// workflow, and a browser downloads it once. Existing bundles are kept: a retained run
+// published with an older Allure version still references its own.
+for (const entry of sharedAssets.map((asset) => ({
+    src: String(asset.src).trim(),
+    dest: String(asset.dest).trim(),
+}))) {
+    const abs = join(workspace, entry.src);
+    if (!existsSync(abs)) {
+        console.log(`::warning::asset source not found: ${entry.src}`);
+        continue;
+    }
+    const dest = join(work, 'docs', entry.dest);
+    mkdirSync(dest, {recursive: true});
+    for (const name of readdirSync(abs)) copyRecursive(join(abs, name), join(dest, name));
+    writeFileSync(join(work, 'docs', '.nojekyll'), '');
+}
+
 // --- Maintain the stable aliases -----------------------------------------------
 // After pruning, so an alias can never point at a run that was just removed. A
 // tool that reported this run mirrors it; one that did not has its alias dropped
@@ -175,7 +205,7 @@ for (const [tool, exclude] of excludes) {
     genIndex(root, `${tool} — ${wf}`, exclude);
     genIndex(join(work, 'docs', tool), `${tool} reports`);
 }
-if (existsSync(join(work, 'docs'))) genIndex(join(work, 'docs'), 'Reports');
+if (existsSync(join(work, 'docs'))) genIndex(join(work, 'docs'), 'Reports', new Set(['_assets']));
 
 // --- Commit + force push, once for the whole run --------------------------------
 run(['add', '-A'], {cwd: work});
