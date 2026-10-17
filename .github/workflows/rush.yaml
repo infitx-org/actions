@@ -48,6 +48,17 @@ on:
 # included, because pnpm keeps a package's build output in the store's index
 # (@@D-546).
 #
+# The **build output is not in this list**: every project's `dist` travels as the
+# `build` artifact of the run instead, packed as one `common/temp/build.tar.zst`
+# by the job that runs `rush rebuild` and unpacked by every job that reads it. A
+# key that hashes the lockfile alone cannot invalidate when a source file changes,
+# and an exact hit suppresses saving, so a dist left in the archive is the dist of
+# whatever commit first wrote that key: build #629 of feasibleone/blong tested a
+# framework build older than the commit under test, and every realm died at boot on
+# an export the stale `@feasibleone/blong/dist/types.js` did not have (`@@F-555`).
+# An artifact belongs to the run that produced it, which is the property the
+# archive cannot have while its key describes only the dependencies.
+#
 # Nothing inside the list below may be a comment: a `|` block scalar keeps a `#`
 # line as data, and both actions/cache and the diagnostic would be handed it as a
 # path. The docs project's `node_modules` is deliberately absent — it is the one
@@ -59,23 +70,14 @@ on:
 env:
   CACHE_PATHS: |
     common/temp/deps.tar.zst
-    app/*/dist
     app/*/.rush
-    core/*/dist
     core/*/.rush
-    realm/*/dist
     realm/*/.rush
-    suite/*/dist
     suite/*/.rush
-    demo/*/dist
     demo/*/.rush
-    test/*/dist
     test/*/.rush
-    tools/*/dist
     tools/*/.rush
-    ext/*/dist
     ext/*/.rush
-    library/*/dist
     library/*/.rush
     docs/*/.rush
 jobs:
@@ -97,13 +99,11 @@ jobs:
           node-version: ${{ inputs.node-version }}
       - &cache
         name: cache pnpm store
-        # Only the `setup` job may write this key: it is the job that runs
-        # `rush rebuild`, so its archive is the one carrying every `*/dist`. The
-        # jobs below restore the same key without building, and an exact hit
-        # suppresses saving, so a build-less writer elsewhere (see
-        # `release-docker.yaml`, where a job saved before the builder did) leaves
-        # the test job without `@feasibleone/blong/dist/types.js` and takes every
-        # package that imports it down with it.
+        # Only the `setup` job may write this key. The jobs below restore it
+        # without building, and an exact hit suppresses saving, so the archive is
+        # whatever the first writer of that lockfile hash left behind — which is
+        # why it carries dependencies and `.rush` only, and the build output goes
+        # through the `build` artifact of this run instead (`@@F-555`).
         uses: actions/cache@v5
         with:
           # The list lives at the top of this file, where the diagnostic step also
@@ -135,6 +135,40 @@ jobs:
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
         run: node common/scripts/install-run-rush.js rebuild --verbose
+      - name: Pack the build output
+        # The dist trees of this run's build, as one file for the same reason the
+        # store is one file (a save or an upload walks every path it is handed,
+        # about 6-12 ms per file, @@F-522) and because an artifact is the only
+        # per-run channel here: the cache key hashes the lockfile alone, so it
+        # cannot invalidate on a source change (`@@F-555`). An empty archive rather
+        # than none, so a repository without build output still produces the
+        # artifact every reader downloads.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          TREES=()
+          for CATEGORY in app core realm suite demo test tools ext library; do
+            [ -d "$CATEGORY" ] || continue
+            for TREE in "$CATEGORY"/*/dist; do
+              [ -d "$TREE" ] && TREES+=("$TREE")
+            done
+          done
+          if [ "${#TREES[@]}" -eq 0 ]; then
+            echo 'No project dist in this repository; packing an empty archive.'
+            tar -cf - --files-from /dev/null | zstd -3 -T0 -q -f -o common/temp/build.tar.zst
+          else
+            printf '%s\n' "${TREES[@]}"
+            tar -cf - "${TREES[@]}" | zstd -3 -T0 -q -f -o common/temp/build.tar.zst
+          fi
+          ls -l common/temp/build.tar.zst
+      - name: Upload the build output
+        # One explicit file, never a glob: an upload's path is walked by the action
+        # itself, and a `**` pattern over this workspace cost twenty minutes in run
+        # 38593732609 (@@F-522).
+        uses: actions/upload-artifact@v7
+        with:
+          name: build
+          path: common/temp/build.tar.zst
       - name: Pack the pnpm store
         # One file instead of 209k, which is the whole of this step's point (@@F-522).
         # The store is what the archive needs; the trees derived from it —
@@ -224,7 +258,8 @@ jobs:
             echo '### the same tree, by subtree'
             echo
             echo 'The rows marked derived are not in the archive: an install rebuilds them from'
-            echo 'the store, which is where its seconds go.'
+            echo 'the store, which is where its seconds go. The build output is not in the'
+            echo 'archive either: it travels as the `build` artifact of this run (`@@F-555`).'
             echo
             echo '| subtree | files | bytes |'
             echo '| --- | ---: | ---: |'
@@ -322,6 +357,24 @@ jobs:
       - *node
       - *cache
       - *unpack
+      # The build output of **this** run, packed by `setup` and read here as a file:
+      # the archive above carries dependencies only, so a dist taken from it is the
+      # dist of whatever commit first wrote that key (`@@F-555`). An empty archive is
+      # possible and harmless — a repository without build output extracts nothing.
+      - &download-build
+        name: Download the build output
+        uses: actions/download-artifact@v8
+        with:
+          name: build
+          path: common/temp
+      - &unpack-build
+        name: Unpack the build output
+        run: |
+          if [ -f common/temp/build.tar.zst ]; then
+            zstd -dc common/temp/build.tar.zst | tar -xf - -C .
+          else
+            echo 'No build.tar.zst in the artifact; nothing to unpack.'
+          fi
       - name: Rush Install
         # This job restores the archive but does not write it, so it depends on what
         # that archive happens to contain — and a build-less archive left behind by
@@ -666,6 +719,8 @@ jobs:
       - *node
       - *cache
       - *unpack
+      - *download-build
+      - *unpack-build
       - name: Rush Install
         # See the tests job: seconds against a warm store, and the job stops
         # depending on what the restored archive happens to contain (@@F-309).
@@ -680,6 +735,8 @@ jobs:
       - *node
       - *cache
       - *unpack
+      - *download-build
+      - *unpack-build
       - name: Rush Install
         # See the tests job: seconds against a warm store, and the job stops
         # depending on what the restored archive happens to contain (@@F-309).
@@ -723,6 +780,8 @@ jobs:
       - *node
       - *cache
       - *unpack
+      - *download-build
+      - *unpack-build
       - name: Rush Install
         # See the tests job: seconds against a warm store, and the job stops
         # depending on what the restored archive happens to contain (@@F-309).
@@ -750,6 +809,8 @@ jobs:
       - *node
       - *cache
       - *unpack
+      - *download-build
+      - *unpack-build
       - name: Rush Install
         # See the tests job: seconds against a warm store, and the job stops
         # depending on what the restored archive happens to contain (@@F-309).

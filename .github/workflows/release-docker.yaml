@@ -25,26 +25,22 @@ on:
 # cost 41 minutes to write, one file takes seconds (@@F-522) — and the trees derived
 # from the store are rebuilt by `rush install` in seconds, native build included
 # (@@D-546). See that file for the reasoning; keep the two lists identical.
+#
+# No `*/dist` in the list on either side: the build output travels as the `build`
+# artifact of the run, because a key that hashes the lockfile alone cannot invalidate
+# on a source change and would hand `publish-package` the dist of an older commit
+# (`@@F-555`).
 env:
   CACHE_PATHS: |
     common/temp/deps.tar.zst
-    app/*/dist
     app/*/.rush
-    core/*/dist
     core/*/.rush
-    realm/*/dist
     realm/*/.rush
-    suite/*/dist
     suite/*/.rush
-    demo/*/dist
     demo/*/.rush
-    test/*/dist
     test/*/.rush
-    tools/*/dist
     tools/*/.rush
-    ext/*/dist
     ext/*/.rush
-    library/*/dist
     library/*/.rush
     docs/*/.rush
 
@@ -127,7 +123,11 @@ jobs:
 
   setup-node:
     needs: release
-    if: needs.release.outputs.released == 'true' && needs.release.outputs.npm != '[]'
+    # This is the build job of a release, not only the npm gate: `chromatic` reads the
+    # `build` artifact it packs, so it has to run whenever a release happened, including
+    # a release whose `npm` list is empty (`publish-package` still decides what to
+    # publish from that list).
+    if: needs.release.outputs.released == 'true'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -162,6 +162,35 @@ jobs:
         run: node common/scripts/install-run-rush.js install
       - name: Rush rebuild
         run: node common/scripts/install-run-rush.js rebuild --verbose
+      - name: Pack the build output
+        # The dist trees this job built, as one file, for the same reasons `rush.yaml`
+        # packs them: an upload walks every path it is handed (@@F-522), and the cache
+        # key cannot describe a source change (@@F-555). `publish-package` reads this
+        # artifact, so what is published is the build of this run and not of whichever
+        # commit first wrote the cache key.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          TREES=()
+          for CATEGORY in app core realm suite demo test tools ext library; do
+            [ -d "$CATEGORY" ] || continue
+            for TREE in "$CATEGORY"/*/dist; do
+              [ -d "$TREE" ] && TREES+=("$TREE")
+            done
+          done
+          if [ "${#TREES[@]}" -eq 0 ]; then
+            echo 'No project dist in this repository; packing an empty archive.'
+            tar -cf - --files-from /dev/null | zstd -3 -T0 -q -f -o common/temp/build.tar.zst
+          else
+            printf '%s\n' "${TREES[@]}"
+            tar -cf - "${TREES[@]}" | zstd -3 -T0 -q -f -o common/temp/build.tar.zst
+          fi
+          ls -l common/temp/build.tar.zst
+      - name: Upload the build output
+        uses: actions/upload-artifact@v7
+        with:
+          name: build
+          path: common/temp/build.tar.zst
       - name: Pack the pnpm store
         run: |
           if [ -d common/temp/pnpm-store ]; then
@@ -183,12 +212,12 @@ jobs:
       - uses: actions/checkout@v6
       - *node
       # `&cache-restore` is the anchor the jobs that do not build use. Only a job
-      # that runs `rush rebuild` may write the shared pnpm key: its archive is the
-      # one carrying every `*/dist`. A job that only installs and then saves wins
-      # the race with a build-less archive of its own, and since an exact cache hit
-      # suppresses saving, that archive is then handed to every later run falling
-      # back to the default branch — `rush.yaml`'s test job never builds, so it is
-      # the first to break (`@feasibleone/blong/dist/types.js` not found).
+      # that runs `rush rebuild` may write the shared pnpm key. A job that only
+      # installs and then saves wins the race with an archive of its own, and since
+      # an exact cache hit suppresses saving, that archive is then handed to every
+      # later run falling back to the default branch (@@F-309). The archive carries no
+      # build output, so it can be stale without consequence: the dist comes from the
+      # `build` artifact of the run (`@@F-555`).
       - &cache-restore
         name: cache pnpm store (restore only)
         id: cache
@@ -203,6 +232,23 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: exit 1
       - *unpack
+      # What this job publishes is the build `setup-node` made in this run — the
+      # `build` artifact — rather than a dist that came back from the cache with the
+      # store (`@@F-555`). The cache guard above still gates the install it needs.
+      - &download-build
+        name: Download the build output
+        uses: actions/download-artifact@v8
+        with:
+          name: build
+          path: common/temp
+      - &unpack-build
+        name: Unpack the build output
+        run: |
+          if [ -f common/temp/build.tar.zst ]; then
+            zstd -dc common/temp/build.tar.zst | tar -xf - -C .
+          else
+            echo 'No build.tar.zst in the artifact; nothing to unpack.'
+          fi
       - name: Run publish script ${{ matrix.package }}
         run: |
           node common/scripts/install-run-rush.js install
@@ -218,7 +264,9 @@ jobs:
           publish_dir: ${{ matrix.path }}/${{steps.publish.outputs.pages}}
 
   chromatic:
-    needs: release
+    # The Storybook baseline is taken from the build of this release, which `setup-node`
+    # makes and `publish-package` publishes, so it waits for it (`@@F-555`).
+    needs: [release, setup-node]
     if: needs.release.outputs.released == 'true'
     runs-on: ubuntu-26.04
     env:
@@ -235,6 +283,8 @@ jobs:
       # cache for a key the test jobs read (see the anchor in `publish-package`).
       - *cache-restore
       - *unpack
+      - *download-build
+      - *unpack-build
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
       - name: Chromatic Storybook baseline
